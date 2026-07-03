@@ -6,7 +6,7 @@ tags: ["gpu", "cutlass", "cutedsl", "vectorization", "coalescing"]
 
 # vectorization and coalescing: the two ways to move memory fast
 
-two ideas that decides whether your kernel is fast or slow at moving data and 
+two ideas that decides whether kernel is fast or slow at moving data and 
 cute gives you one knob for each.
 
 ## why we care at all
