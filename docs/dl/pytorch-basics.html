@@ -633,6 +633,7 @@ place();
 
 (function(){
 'use strict';
+var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 var fig=document.getElementById('fig-autograd');
 if(fig){
