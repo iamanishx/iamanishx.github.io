@@ -314,62 +314,80 @@ button:focus-visible,a:focus-visible,summary:focus-visible{
 <h2 id="architecture"><span class="secnum">2</span>The architecture that actually works</h2>
 <p>To handle 100 or more concurrent agent jobs without the system falling apart, separate three concerns: ingestion, scheduling, and execution. None of them should live in the same synchronous request-response cycle.</p>
 <figure class="figure" id="fig-arch">
-  <svg viewBox="0 0 760 360" role="img" aria-label="Animated nine-hop pipeline. One pulse leaves the webhook, collects a job id in milliseconds from the gateway, work waits in the redis queue, bullmq workers provision kubernetes sandbox pods, pods clone and run the agent while appending jsonl logs, and status streams back to the gateway.">
-    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">
-      <text x="360" y="14" text-anchor="middle">hop 1 · validate + acknowledge</text>
+  <svg viewBox="0 0 760 620" role="img" aria-label="Animated architecture map matching the hand drawn sketch. A webhook request is validated and acknowledged by the express api gateway, tasks are pushed into a queue and scheduling layer holding redis queue state and bullmq workers, workers provision an ephemeral execution cluster of kubernetes sandbox pods, pods clone and run the agent while appending jsonl logs to disk, and status streams back to the gateway.">
+    <rect x="330" y="24" width="290" height="40" fill="#f3e4da" stroke="#9c3b22" stroke-width="1.5"></rect>
+    <text x="475" y="49" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#9c3b22">webhook / api request</text>
+
+    <path id="ar-p1" d="M475 64 L475 96" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k1" points="470,95 480,95 475,104" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l1" x="487" y="78" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">1 · validate and acknowledge</text>
+
+    <rect x="352" y="106" width="246" height="38" fill="#e5dcf2" stroke="#6a4a8f" stroke-width="1.5"></rect>
+    <text x="475" y="130" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#6a4a8f">express api gateway</text>
+
+    <text id="ar-l2" x="668" y="110" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#7a7261">2 · write job metadata</text>
+    <path id="ar-p2" d="M598 118 L700 118 L700 544 L634 544 L634 552" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k2" points="630,551 638,551 634,559" fill="#4a4438" opacity="0"></polygon>
+
+    <path id="ar-p3" d="M352 125 L262 125 L262 158" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k3" points="258,157 266,157 262,166" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l3" x="274" y="142" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">3 · push task to queue</text>
+
+    <rect x="120" y="168" width="285" height="196" fill="none" stroke="#4a4438" stroke-width="1.2"></rect>
+    <text x="262" y="186" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">Queue and Scheduling Layer</text>
+
+    <rect x="180" y="200" width="165" height="36" fill="#f3ded9" stroke="#9c3b22" stroke-width="1.2"></rect>
+    <text x="262" y="223" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#9c3b22">Redis Queue State</text>
+
+    <path id="ar-p4" d="M262 236 L262 264" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k4" points="258,263 266,263 262,272" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l4" x="274" y="256" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">4 · throttled dequeue</text>
+
+    <rect x="180" y="274" width="165" height="36" fill="#f5e3b8" stroke="#8a5a17" stroke-width="1.2"></rect>
+    <text x="262" y="297" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#8a5a17">BullMQ Workers</text>
+
+    <path id="ar-p5" d="M262 310 L262 364" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k5" points="258,363 266,363 262,372" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l5" x="274" y="344" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">5 · provision sandbox</text>
+
+    <rect x="80" y="374" width="430" height="170" fill="none" stroke="#4a4438" stroke-width="1.2"></rect>
+    <text x="295" y="392" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">Ephemeral Execution Cluster</text>
+
+    <rect x="185" y="404" width="220" height="38" fill="#dbe4ef" stroke="#4a4438" stroke-width="1.5"></rect>
+    <text x="295" y="428" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#4a4438">Kubernetes API Server</text>
+
+    <path id="ar-p6a" d="M255 442 L215 464" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k6a" points="211,465 219,465 215,473" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l6a" x="176" y="452" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#7a7261">6 · start isolated runner</text>
+    <path id="ar-p6b" d="M335 442 L375 464" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k6b" points="371,465 379,465 375,473" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l6b" x="414" y="452" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#7a7261">6 · start isolated runner</text>
+
+    <g id="ar-pod1">
+      <rect x="135" y="476" width="160" height="38" fill="#efe9da" stroke="#7a7261" stroke-width="1.2" stroke-dasharray="6 3"></rect>
+      <text x="215" y="500" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#4a4438">Sandbox Pod 1</text>
     </g>
-    <rect x="250" y="22" width="220" height="32" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="360" y="42" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">webhook / api request</text>
-    <path id="ar-p1" d="M360 54 L360 84" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k1" points="355,83 365,83 360,93" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l1" x="370" y="72" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">1 · validate + ack</text>
+    <g id="ar-podn">
+      <rect x="295" y="476" width="160" height="38" fill="#efe9da" stroke="#7a7261" stroke-width="1.2" stroke-dasharray="6 3"></rect>
+      <text x="375" y="500" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#4a4438">Sandbox Pod N</text>
+    </g>
 
-    <rect x="230" y="96" width="260" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="360" y="118" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">express api gateway</text>
+    <path id="ar-p7" d="M215 514 L215 550" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k7" points="211,549 219,549 215,558" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l7" x="228" y="536" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">7 · clone repo and run agent</text>
 
-    <path id="ar-p2" d="M490 108 L560 108 Q595 108 595 140 L595 182" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k2" points="591,181 599,181 595,190" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l2" x="603" y="148" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">2 · write job metadata</text>
+    <path id="ar-p8a" d="M330 514 L398 550" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k8a" points="393,546 404,556 390,556" fill="#4a4438" opacity="0"></polygon>
+    <path id="ar-p8b" d="M420 514 L455 550" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k8b" points="450,546 461,556 447,556" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l8" x="472" y="534" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">8 · append logs in real time</text>
 
-    <path id="ar-p3" d="M230 108 L160 108 Q125 108 125 140 L125 182" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k3" points="121,181 129,181 125,190" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l3" x="133" y="148" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">3 · push task</text>
+    <rect x="360" y="560" width="280" height="44" fill="#dde8dd" stroke="#0e7355" stroke-width="1.5"></rect>
+    <text x="500" y="587" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#0a5c44">JSONL and JSON Files on Disk</text>
 
-    <text x="140" y="182" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">queue layer</text>
-    <rect x="50" y="192" width="180" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="140" y="214" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">[ redis queue ]</text>
-    <text x="595" y="182" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">observability layer</text>
-    <rect x="460" y="192" width="270" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="595" y="214" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">jsonl / json files on disk</text>
-
-    <path id="ar-p4" d="M140 228 L140 276" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k4" points="136,275 144,275 140,284" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l4" x="148" y="254" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">4 · throttled dequeue</text>
-
-    <rect x="50" y="286" width="180" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="140" y="308" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">bullmq workers</text>
-    <path id="ar-p5" d="M230 304 L262 304" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k5" points="262,300 262,308 270,304" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l5" x="246" y="330" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">5 · provision sandbox</text>
-
-    <rect x="270" y="286" width="190" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="365" y="308" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">kubernetes api server</text>
-    <path id="ar-p6" d="M460 304 L504 304" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k6" points="504,300 504,308 512,304" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l6" x="482" y="330" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">6 · start isolated runner</text>
-
-    <rect id="ar-hl" x="504" y="280" width="232" height="48" fill="none" stroke="#0e7355" stroke-width="1.5" stroke-dasharray="5 3" opacity="0"></rect>
-    <rect x="510" y="286" width="220" height="36" fill="#f7f3ea" stroke="#4a4438"></rect>
-    <text x="620" y="308" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">sandbox pod 1 ... pod N</text>
-    <text id="ar-l7" x="620" y="350" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">7 · clone repo, run agent, push branch</text>
-
-    <path id="ar-p8" d="M640 280 L640 234" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k8" points="636,235 644,235 640,227" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l8" x="650" y="264" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">8 · append logs live</text>
-
-    <path id="ar-p9" d="M480 192 L480 150 Q480 138 468 138 L368 138 L368 132" fill="none" stroke="#dcd4c1" stroke-width="1.4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
-    <polygon id="ar-k9" points="364,139 372,139 368,131" fill="#4a4438" opacity="0"></polygon>
-    <text id="ar-l9" x="356" y="166" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">9 · read + stream status</text>
+    <path id="ar-p9" d="M642 582 L672 582 L672 150 L614 136" fill="none" stroke="#dcd4c1" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+    <polygon id="ar-k9" points="621,129 608,127 614,141" fill="#4a4438" opacity="0"></polygon>
+    <text id="ar-l9" transform="rotate(90 730 352)" x="730" y="352" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#7a7261">9 · read and stream status</text>
   </svg>
   <div class="fig-readout">
     <div><span class="fig-label">hop</span><span class="val" id="fl-hop">9 / 9</span></div>
@@ -379,10 +397,11 @@ button:focus-visible,a:focus-visible,summary:focus-visible{
     <div class="fig-state" id="fl-state">nine hops per job: only hop one holds an http connection, everything slow moves through queue and disk instead</div>
   </div>
   <div class="fig-foot">
-    <figcaption><strong>Fig. 1.</strong> The same nine hops as an animation. A pulse leaves the webhook and rides each hop in order. Metadata (hop 2) and live logs (hops 8 and 9) flow through files on disk, which is how a twenty minute agent never holds a socket open. Hand-drawn original: <a href="../bin/assests/image.png" rel="noopener">bin/assests/image.png</a>.</figcaption>
+    <figcaption><strong>Fig. 1.</strong> The sketch from bin/assests/image.png rebuilt as an animation. A pulse leaves the webhook and rides each hop in order: instant ack at the gateway, task parked in redis until a worker dequeues it, an ephemeral sandbox pod cloned per job, JSONL logs streaming to disk while hop nine feeds status back to whoever polls. Hand-drawn original: <a href="../bin/assests/image.png" rel="noopener">bin/assests/image.png</a>.</figcaption>
     <button class="fig-replay" type="button">Replay</button>
   </div>
 </figure>
+
 
 <p>The ingestion layer receives the webhook and returns a job ID within milliseconds. The scheduling layer manages concurrency so the cluster never gets overloaded. The execution layer runs each job in a completely isolated container that is destroyed when the work is done. Disk-based logging makes the system observable without burning memory. The original sketch I drew of these flows lives at <a href="../bin/assests/image.png" rel="noopener">bin/assests/image.png</a>.</p>
 
@@ -562,47 +581,76 @@ var figF=document.getElementById('fig-arch');
 if(figF){
   var svgF=figF.querySelector('svg');
   var NS='http://www.w3.org/2000/svg';
-  var hopEl=document.getElementById('fl-hop'),stageEl=document.getElementById('fl-stage');
-  var NAMES=['validate + ack','write metadata','push task','throttled dequeue','provision sandbox','start runner','clone + run','append logs','stream status'];
-  var heads={};[1,2,3,4,5,6,8,9].forEach(function(n){heads[n]=document.getElementById('ar-k'+n);});
-  var hl=document.getElementById('ar-hl');
-  var pulse=document.createElementNS(NS,'circle');
-  pulse.setAttribute('r','5');pulse.setAttribute('fill','#0e7355');pulse.setAttribute('opacity','0');
-  svgF.appendChild(pulse);
-  function setEdge(i,mode){
-    var pp=document.getElementById('ar-p'+i);
-    if(!pp) return;
-    pp.setAttribute('stroke',mode==='active'?'#0e7355':mode==='done'?'#4a4438':'#dcd4c1');
-    pp.setAttribute('stroke-width',mode==='active'?'2.2':'1.4');
-    var hh=heads[i]; if(hh) hh.setAttribute('opacity',mode==='pending'?'0':'1');
-    var lb=document.getElementById('ar-l'+i);
-    if(lb) lb.setAttribute('fill',mode==='active'?'#0e7355':mode==='done'?'#4a4438':'#7a7261');
+  var hopEl=document.getElementById('fl-hop');
+  var stageEl=document.getElementById('fl-stage');
+  var NAMES=['validate and acknowledge','write job metadata','push task to queue','throttled dequeue','provision sandbox','start isolated runners','clone repo and run agent','append logs in real time','read and stream status'];
+  var STEPS=[
+    {p:['ar-p1'],l:['ar-l1'],h:['ar-k1']},
+    {p:['ar-p2'],l:['ar-l2'],h:['ar-k2']},
+    {p:['ar-p3'],l:['ar-l3'],h:['ar-k3']},
+    {p:['ar-p4'],l:['ar-l4'],h:['ar-k4']},
+    {p:['ar-p5'],l:['ar-l5'],h:['ar-k5']},
+    {p:['ar-p6a','ar-p6b'],l:['ar-l6a','ar-l6b'],h:['ar-k6a','ar-k6b']},
+    {p:['ar-p7'],l:['ar-l7'],h:['ar-k7']},
+    {p:['ar-p8a','ar-p8b'],l:['ar-l8'],h:['ar-k8a','ar-k8b']},
+    {p:['ar-p9'],l:['ar-l9'],h:['ar-k9']}
+  ];
+  var pulses={};
+  STEPS.forEach(function(st){
+    st.els=st.p.map(function(pid){return document.getElementById(pid);});
+    st.lbls=st.l.map(function(lid){return document.getElementById(lid);});
+    st.hds=st.h.map(function(hid){return document.getElementById(hid);});
+  });
+  function pulseFor(pid){
+    if(!pulses[pid]){
+      var c=document.createElementNS(NS,'circle');
+      c.setAttribute('r','5');c.setAttribute('fill','#0e7355');c.setAttribute('opacity','0');
+      svgF.appendChild(c);pulses[pid]=c;
+    }
+    return pulses[pid];
+  }
+  function hidePulses(){Object.keys(pulses).forEach(function(k){pulses[k].setAttribute('opacity','0');});}
+  function setStep(i,mode,prog){
+    var st=STEPS[i];
+    var stroke=(mode==='active')?'#0e7355':(mode==='done')?'#4a4438':'#dcd4c1';
+    var width=(mode==='active')?'2.2':'1.5';
+    st.els.forEach(function(el){
+      el.setAttribute('stroke',stroke);
+      el.setAttribute('stroke-width',width);
+      el.setAttribute('stroke-dashoffset',String(1-prog));
+    });
+    st.hds.forEach(function(hd){hd.setAttribute('opacity',(mode==='pending'||prog<0.85)?'0':'1');});
+    st.lbls.forEach(function(lb){
+      lb.setAttribute('fill',mode==='active'?'#0e7355':(mode==='done')?'#4a4438':'#7a7261');
+    });
   }
   function draw(e){
-    var s=e*9;
-    for(var i=1;i<=9;i++){
-      var pos=s-(i-1);
-      var mode=pos>=1?'done':pos>0?'active':'pending';
-      if(e>=1) mode='done';
-      setEdge(i,mode);
-      var pp=document.getElementById('ar-p'+i);
-      pp.setAttribute('stroke-dashoffset', pos>=1?'0': pos<=0?'1': String(1-pos));
+    var n=STEPS.length,s=e*n,i,cur;
+    hidePulses();
+    for(i=0;i<n;i++){
+      var pos=s-i;
+      var mode=e>=1?'done':(pos>=1?'done':(pos>0?'active':'pending'));
+      var prog=e>=1?1:(pos<=0?0:Math.min(pos/0.65,1));
+      setStep(i,mode,prog);
+      if(mode==='active'){
+        var st=STEPS[i];
+        for(var j=0;j<st.p.length;j++){
+          var el=st.els[j],len=el.getTotalLength();
+          var pt=el.getPointAtLength(prog*len);
+          var c=pulseFor(st.p[j]);
+          c.setAttribute('cx',pt.x.toFixed(1));c.setAttribute('cy',pt.y.toFixed(1));
+          c.setAttribute('opacity','1');
+        }
+        cur=i+1;
+      }
     }
-    if(hl) hl.setAttribute('opacity', (s>=6&&s<8)||e>=1?'1':'0');
-    var cur=e>=1?9:Math.min(9,Math.floor(s)+1);
-    if(hopEl) hopEl.textContent=cur+' / 9';
-    if(stageEl) stageEl.textContent=NAMES[cur-1];
-    if(e>=1){pulse.setAttribute('opacity','0');return;}
-    var idx=Math.min(8,Math.floor(s));
-    var u=s-idx;
-    if(u>0.02&&u<0.98){
-      var P=document.getElementById('ar-p'+(idx+1));
-      if(P){var len=P.getTotalLength(); var pt=P.getPointAtLength(u*len); pulse.setAttribute('cx',pt.x.toFixed(1)); pulse.setAttribute('cy',pt.y.toFixed(1)); pulse.setAttribute('opacity','1');}
-    } else {pulse.setAttribute('opacity','0');}
+    hopEl.textContent=(e>=1?n:cur||1)+' / '+n;
+    stageEl.textContent=NAMES[(e>=1?n:cur||1)-1];
+    return;
   }
-  function reset(){draw(0);}
+  function reset(){hopEl.textContent='1 / 9';stageEl.textContent=NAMES[0];draw(0);}
   var btnF=figF.querySelector('.fig-replay');
-  var rafF=null,t0F=0,DURF=5600;
+  var rafF=null,t0F=0,DURF=7200;
   function easeF(x){return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
   function frameF(ts){
     if(!t0F)t0F=ts;
@@ -612,7 +660,7 @@ if(figF){
   }
   function stopF(){if(rafF){cancelAnimationFrame(rafF);rafF=null;}}
   function playF(){stopF();reset();if(rm){draw(1);return;}t0F=0;rafF=requestAnimationFrame(frameF);}
-  if(btnF) btnF.addEventListener('click',playF);
+  btnF.addEventListener('click',playF);
   if(rm){draw(1);}
   else if('IntersectionObserver' in window){
     var playedF=false;
@@ -620,7 +668,7 @@ if(figF){
       es.forEach(function(en){if(en.isIntersecting&&!playedF){playedF=true;playF();ioF.disconnect();}});
     },{threshold:0.4});
     ioF.observe(figF);
-  } else {draw(1);}
+  }else{draw(1);}
 }
 
 var fig=document.getElementById('fig-scale');
