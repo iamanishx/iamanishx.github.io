@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vectorization and coalescing: the two ways to move memory fast</title>
+<meta name="description" content="A kernel is fast when its bytes arrive before the math asks for them. Two knobs decide that, and cute gives you one call for each.">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f7f3ea;
+  --paper-deep:#efe9da;
+  --ink:#1d1a15;
+  --ink-soft:#4a4438;
+  --muted:#7a7261;
+  --rule:#dcd4c1;
+  --accent:#0e7355;
+  --accent-dark:#0a5c44;
+  --code-bg:#efe9db;
+  --code-border:#d9d0bb;
+  --sidenote-w:230px;
+  --content-w:720px;
+  --sidebar-w:225px;
+  --gap:48px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;
+  font-size:19px;
+  line-height:1.68;
+}
+::selection{background:#f5e3b8}
+
+.page{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) minmax(0,var(--content-w)) var(--sidenote-w);
+  grid-template-areas:
+    "head head head"
+    "toc  body side"
+    "foot foot foot";
+  gap:0 var(--gap);
+  justify-content:center;
+  padding:0 32px;
+}
+
+/* masthead */
+.masthead{grid-area:head;padding-top:72px}
+.kicker{
+  font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:20px;
+}
+h1{font-size:52px;line-height:1.12;font-weight:700;margin-bottom:22px;max-width:680px}
+.lede{font-size:22.5px;line-height:1.55;color:var(--ink-soft);max-width:620px;margin-bottom:30px}
+.byline{
+  display:flex;flex-wrap:wrap;gap:6px 26px;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:10px 2px;margin-bottom:40px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;color:var(--muted);
+}
+
+/* toc */
+nav.toc{
+  grid-area:toc;position:sticky;top:40px;align-self:start;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+}
+.toc-label{letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:500}
+#toc-list{list-style:none}
+#toc-list a{
+  display:block;padding:4px 0 4px 12px;border-left:1px solid var(--rule);
+  color:var(--ink-soft);text-decoration:none;line-height:1.5;
+}
+#toc-list a:hover{color:var(--accent-dark)}
+#toc-list a.active{color:var(--accent-dark);border-left:2px solid var(--accent-dark);padding-left:11px;font-weight:600}
+details.toc-mobile{display:none}
+details.toc-mobile summary{
+  cursor:pointer;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);padding:6px 0;list-style:none;
+}
+details.toc-mobile[open] summary{border-bottom:1px solid var(--rule);margin-bottom:6px}
+details.toc-mobile #toc-list{padding-bottom:8px}
+
+/* article */
+article{grid-area:body;padding-bottom:24px;min-width:0}
+.margin{grid-area:side}
+article p{margin:0 0 1.25em}
+article h2{font-size:31px;line-height:1.25;font-weight:700;margin:2.1em 0 .7em;scroll-margin-top:32px}
+.secnum{
+  display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;font-weight:500;color:var(--accent-dark);margin-right:10px;
+}
+h3{font-size:22px;line-height:1.35;font-weight:700;margin:1.7em 0 .5em;scroll-margin-top:32px}
+hr.sect{border:0;border-top:1px solid var(--rule);margin:56px 0}
+strong,b{font-weight:600}
+
+article :not(pre)>code, .refs code{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:.82em;background:var(--code-bg);
+  border:1px solid var(--code-border);border-radius:3px;padding:.06em .3em;
+}
+pre{
+  background:var(--code-bg);border:1px solid var(--code-border);border-radius:4px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 1.5em;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:14px;line-height:1.6;color:var(--ink);tab-size:4;
+}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+.c{color:#8a8171;font-style:italic}
+.k{color:var(--accent-dark);font-weight:500}
+.n{color:#8a5a17}
+.s{color:#6a4a8f}
+.hl{display:block;background:#f5e3b8;margin:0 -18px;padding:0 18px}
+
+article ul,article ol{margin:0 0 1.25em;padding-left:26px}
+article li{margin:.3em 0}
+article li::marker{color:var(--muted)}
+
+blockquote{
+  margin:1.8em 0;background:var(--paper-deep);
+  border-left:3px solid var(--accent-dark);padding:14px 20px;
+}
+blockquote .lbl{
+  display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:6px;
+}
+blockquote p{margin:0;font-size:17.5px;line-height:1.6}
+blockquote p+p{margin-top:.6em}
+
+table{width:100%;border-collapse:collapse;margin:1.8em 0;font-size:16.5px;line-height:1.5}
+caption{
+  caption-side:top;text-align:left;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:10px;
+}
+th{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);text-align:left;
+  border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule);
+  padding:8px 16px 8px 0;vertical-align:bottom;
+}
+td{border-bottom:1px solid var(--rule);padding:9px 16px 9px 0;vertical-align:top}
+tbody tr:last-child td{border-bottom:1.5px solid var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.danger td{background:#f3e4da}
+td.good{color:var(--accent-dark);font-weight:600}
+td.bad{color:#9c3b22;font-weight:600}
+
+sup.ref{
+  font-size:11.5px;line-height:0;color:var(--accent-dark);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;margin-left:1px;
+}
+.sidenote{
+  float:right;clear:right;width:var(--sidenote-w);
+  margin-right:calc(-1 * (var(--gap) + var(--sidenote-w)));
+  margin-top:.25rem;margin-bottom:1rem;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;line-height:1.55;color:var(--ink-soft);
+}
+.sn-num{color:var(--muted);margin-right:4px}
+
+figure.figure{
+  margin:2em 0;background:var(--paper-deep);
+  border:1px solid var(--rule);padding:18px 18px 12px;
+}
+figure.figure svg{display:block;width:100%;height:auto}
+.fig-readout{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px;
+  margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+.fig-readout>div{border-top:1px solid var(--rule);padding-top:8px}
+.fig-label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.val{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig-state{grid-column:1/-1;font-size:11.5px;color:var(--accent-dark)}
+.fig-state.bad{color:#9c3b22}
+.fig-foot{
+  display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  margin-top:12px;border-top:1px solid var(--rule);padding-top:10px;
+}
+figcaption{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;line-height:1.55;color:var(--muted);
+}
+figcaption strong{color:var(--accent-dark);font-weight:500}
+.fig-replay{
+  flex-shrink:0;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-dark);background:none;border:1px solid var(--rule);
+  padding:5px 12px;cursor:pointer;
+}
+.fig-replay:hover{color:var(--accent);border-color:var(--accent-dark)}
+
+ol.refs{list-style:decimal;padding-left:22px;margin-top:1em;font-size:16px;color:var(--ink-soft)}
+ol.refs li{margin-bottom:.45em}
+
+footer{
+  grid-area:foot;margin-top:72px;border-top:1px solid var(--rule);
+  padding-top:14px;display:flex;flex-wrap:wrap;gap:6px 26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;color:var(--muted);
+}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent-dark);text-decoration:underline}
+
+article a{
+  color:var(--accent-dark);text-decoration:none;
+  background-image:linear-gradient(currentColor,currentColor);
+  background-repeat:no-repeat;background-position:0 100%;
+  background-size:100% 1px;transition:background-size .25s ease,color .15s ease;
+}
+article a:hover{color:var(--accent);background-size:100% 2px}
+
+.js .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+button:focus-visible,a:focus-visible,summary:focus-visible{
+  outline:2px solid var(--accent-dark);outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .js .reveal{transition:none;opacity:1;transform:none}
+}
+
+@media (max-width:1180px){
+  .page{grid-template-columns:minmax(0,var(--content-w));grid-template-areas:"head" "toc" "body" "foot"}
+  nav.toc{position:static;margin-bottom:8px}
+  .margin{display:none}
+  .sidenote{
+    float:none;width:auto;margin:1.2em 0;
+    padding:12px 16px;background:var(--paper-deep);
+  }
+}
+
+@media (max-width:900px){
+  h1{font-size:40px;line-height:1.18}
+  .lede{font-size:20px}
+  pre{font-size:12.5px}
+  table{display:block;overflow-x:auto}
+  .fig-readout{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .js nav.toc{display:none}
+  .js details.toc-mobile{display:block}
+}
+
+@media (max-width:520px){
+  .page{padding:0 18px}
+  h1{font-size:30px;line-height:1.25}
+  .byline{gap:4px 16px;font-size:12px}
+  figure.figure{padding:12px 12px 8px}
+  .hl{margin:0 -14px;padding:0 14px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <p class="kicker">GPU kernels · CUTLASS CuTe · memory movement</p>
+  <h1>Vectorization and coalescing: the two ways to move memory fast</h1>
+  <p class="lede">A kernel is rarely slow because it computes too much. It is slow because it waits for bytes. Two independent knobs decide how fast data moves: how wide each thread's single load is, and whether adjacent threads touch adjacent addresses.</p>
+  <div class="byline">
+    <span>July 2026</span>
+    <span>4 min read</span>
+    <span>tags: gpu, cutlass, cutedsl, vectorization, coalescing</span>
+    <span><a href="../../index.html">archives home</a></span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Table of contents">
+  <p class="toc-label">Contents</p>
+  <ol id="toc-list">
+    <li><a href="#why-we-care">0 · Why we care at all</a></li>
+    <li><a href="#vectorization">1 · Vectorization: one thread, wide loads</a></li>
+    <li><a href="#coalescing">2 · Coalescing: many threads, adjacent addresses</a></li>
+    <li><a href="#two-knobs">3 · Two different knobs, not one</a></li>
+    <li><a href="#cute">4 · How CuTe exposes exactly one knob each</a></li>
+    <li><a href="#references">References</a></li>
+  </ol>
+  <details class="toc-mobile">
+    <summary>Contents</summary>
+  </details>
+</nav>
+
+<article>
+
+<h2 id="why-we-care"><span class="secnum">0</span>Why we care at all</h2>
+<p>The GPU is starving. Its math units are so fast that most kernels spend their time waiting for data from HBM (global memory). HBM is slow: a load costs hundreds of cycles.<sup class="ref">1</sup> So the whole game is to move the bytes you need in as few and as wide trips as possible. Two tricks do that, and they attack two different parts of the problem.</p>
+<div class="sidenote"><span class="sn-num">fn 1</span>HBM latency is measured in hundreds of GPU clock cycles per trip. An L2 hit is cheaper, registers are almost free, but the first fetch from global memory is always the expensive one you design around.</div>
+<p>Everything below is about one question: when a warp issues a load instruction, what actually travels over the wire?</p>
+
+<hr class="sect">
+
+<h2 id="vectorization"><span class="secnum">1</span>Vectorization: one thread, wide loads</h2>
+<p>A thread can load 1 element per instruction, or it can load 4, 8, or 16 bytes in a single instruction. Same latency, more data. Fewer instructions to move the same tile.</p>
+<pre><code>scalar:      load a  |  load b  |  load c  |  load d      4 instructions
+vectorized:  load [a b c d]                               1 instruction</code></pre>
+<p>The catch: the data has to be contiguous in memory (a, b, c, d next to each other) and aligned.<sup class="ref">2</sup> Then one wide instruction grabs them all. This is vectorization: make each thread's load as wide as the layout allows.</p>
+<div class="sidenote"><span class="sn-num">fn 2</span>Alignment matters because wide loads map to machine instructions with address requirements. A 128-bit copy wants a suitably aligned base address; misaligned bases force the hardware to split or refuse the access.</div>
+<blockquote>
+  <span class="lbl">Lesson</span>
+  <p>Latency is fixed, width is not. If a thread must make the trip anyway, carry more bytes per trip.</p>
+</blockquote>
+
+<hr class="sect">
+
+<h2 id="coalescing"><span class="secnum">2</span>Coalescing: many threads, adjacent addresses</h2>
+<p>A warp is 32 threads issuing the same load instruction at the same time.<sup class="ref">3</sup> If those 32 threads ask for 32 addresses that are next to each other, the hardware fuses them into a few big memory transactions. If they ask for 32 scattered addresses, it does 32 separate slow transactions.</p>
+<div class="sidenote"><span class="sn-num">fn 3</span>One warp, one instruction, 32 lanes. The instruction is issued once; what differs per lane is only the address each lane computes.</div>
+<pre><code>coalesced:   thread0-&gt;addr0  thread1-&gt;addr1 ... thread31-&gt;addr31  (contiguous)
+             hardware fuses into ~1 wide transaction               fast
+
+scattered:   thread0-&gt;addr0  thread1-&gt;addr500 ... (all over)
+             32 separate transactions                              slow</code></pre>
+<p>The rule: arrange it so adjacent threads touch adjacent addresses. This is coalescing. It is about the shape of the thread-to-data mapping, not how wide one thread's load is.</p>
+
+<figure class="figure" id="fig-coalesce">
+  <svg viewBox="0 0 760 240" role="img" aria-label="Eight lanes of a warp fetching fp32 elements. With contiguous addresses the requests fuse into one wide transaction. With scattered addresses every request becomes its own transaction.">
+    <text x="40" y="26" font-family="IBM Plex Mono, monospace" font-size="11" fill="#7a7261" letter-spacing="1">COALESCED</text>
+    <text x="420" y="26" font-family="IBM Plex Mono, monospace" font-size="11" fill="#7a7261" letter-spacing="1">SCATTERED</text>
+    <g id="threads-l"></g>
+    <g id="cells-l"></g>
+    <g id="lines-l"></g>
+    <rect id="bar-l" x="45" y="196" width="0" height="9" fill="#0e7355"></rect>
+    <g id="bars-r"></g>
+    <g id="threads-r"></g>
+    <g id="cells-r"></g>
+    <g id="lines-r"></g>
+  </svg>
+  <div class="fig-readout">
+    <div><span class="fig-label">transactions left</span><span class="val" id="tx-left">1</span></div>
+    <div><span class="fig-label">transactions right</span><span class="val bad" id="tx-right" style="color:#9c3b22">8</span></div>
+    <div><span class="fig-label">bytes per trip, left</span><span class="val">32 B</span></div>
+    <div><span class="fig-label">bytes per trip, right</span><span class="val">4 B</span></div>
+    <div class="fig-state" id="state-coalesce">contiguous lanes fuse into one wide trip; scattered lanes pay eight separate ones</div>
+  </div>
+  <div class="fig-foot">
+    <figcaption><strong>Fig. 1.</strong> Eight of a warp's 32 lanes shown, fp32 elements at 4 B each. Watch contiguous requests fuse under one green bar while scattered requests each get their own red bar and their own latency bill.</figcaption>
+    <button class="fig-replay" type="button">Replay</button>
+  </div>
+</figure>
+
+<hr class="sect">
+
+<h2 id="two-knobs"><span class="secnum">3</span>Two different knobs, not one</h2>
+<pre><code>vectorization  = one thread reads a wide contiguous chunk
+coalescing     = adjacent threads read adjacent addresses</code></pre>
+<p>One is "how fat is a single thread's load". The other is "do the 32 threads line up on memory". You want both: fat loads and lined-up threads. Together they turn a tile move into the fewest possible wide HBM transactions.</p>
+<table>
+  <caption>The two knobs compared</caption>
+  <thead>
+    <tr><th scope="col">Property</th><th scope="col">Vectorization</th><th scope="col">Coalescing</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Scope</td><td>one thread</td><td>the whole warp</td></tr>
+    <tr><td>What it widens</td><td>bytes per instruction</td><td>requests fused per transaction</td></tr>
+    <tr><td>Requirement</td><td>contiguous, aligned data</td><td>adjacent lane ids map to adjacent addresses</td></tr>
+    <tr><td>Failure mode</td><td class="bad">narrow scalar loads</td><td class="bad">split transactions</td></tr>
+    <tr><td>CuTe knob</td><td><code>num_bits_per_copy</code></td><td><code>thr_layout</code> (the T of TV)</td></tr>
+  </tbody>
+</table>
+<blockquote>
+  <span class="lbl">Root cause</span>
+  <p>Most "my kernel is bandwidth bound" surprises trace back to one of these two knobs being off, not to the algorithm. Check both before rewriting anything.</p>
+</blockquote>
+
+<hr class="sect">
+
+<h2 id="cute"><span class="secnum">4</span>How CuTe exposes exactly one knob each</h2>
+<p>CuTe splits these into exactly two calls.<sup class="ref">4</sup></p>
+<div class="sidenote"><span class="sn-num">fn 4</span>Snippets follow the CUTLASS Python (CuTe DSL) tutorial shape. The atom sets copy width, the tiled copy sets thread partitioning.</div>
+<pre><code><span class="c"># 1) vectorization: how many bits one thread copies per instruction</span>
+atom = cute.make_copy_atom(cute.nvgpu.copyuniversalop(),
+                           cutlass.float16, num_bits_per_copy=<span class="n">128</span>)
+
+<span class="c"># 2) coalescing: how the threads are laid out over the data (the tv layout)</span>
+<span class="hl">tc = cute.make_tiled_copy_tv(atom, thr_layout, val_layout)</span>
+
+<span class="c"># then every thread copies its slice</span>
+thr = tc.get_slice(tidx)
+cute.copy(tc, thr.partition_s(gmem), thr.partition_d(smem))</code></pre>
+<ul>
+  <li><p><code>make_copy_atom(..., num_bits_per_copy=n)</code> sets the vector width. Bump n from 16 to 128 and each thread moves 8 fp16 values in one shot instead of one. That is vectorization.</p></li>
+  <li><p><code>make_tiled_copy_tv(atom, thr_layout, val_layout)</code> sets the thread layout (the "t"). You choose it so consecutive threads land on consecutive memory. That is coalescing. The "v" (value layout) says how many elements each thread owns and in what shape.</p></li>
+</ul>
+<p>So: the atom controls the fat load, the tiled copy controls the thread lineup.</p>
+<blockquote>
+  <span class="lbl">Lesson</span>
+  <p>When a copy is slow, name the culprit before tuning anything: is this a width problem (fix the atom) or a lineup problem (fix the thread layout)? The fix follows from the diagnosis.</p>
+</blockquote>
+
+<hr class="sect">
+
+<h2 id="references"><span class="secnum">5</span>References</h2>
+<ol class="refs">
+  <li><a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/" rel="noopener">CUDA C++ Programming Guide</a>, section on memory coalescing and warp access patterns.</li>
+  <li><a href="https://github.com/NVIDIA/cutlass" rel="noopener">NVIDIA CUTLASS repository</a>, CuTe layout algebra and copy atoms documentation.</li>
+  <li><a href="https://github.com/NVIDIA/cutlass/blob/main/examples/" rel="noopener">CUTLASS examples directory</a>, tiled copy usage in working kernels.</li>
+  <li>Local source: <code>bin/blogs/vectorization-coalescing.md</code>, the original markdown note this page was rewritten from.</li>
+</ol>
+
+</article>
+
+<div class="margin"></div>
+
+<footer>
+  <span>manish biswal · archives</span>
+  <span>dl notes / gpu kernels</span>
+  <a href="../../index.html">home</a>
+  <a href="optimizer-state.html">next: optimizer state</a>
+  <span>july 2026</span>
+</footer>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+document.documentElement.classList.add('js');
+var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* scroll reveal: hidden states exist only when JS runs */
+var kids=[].slice.call(document.querySelectorAll('article > *'));
+if(!rm && 'IntersectionObserver' in window){
+  kids.forEach(function(el){el.classList.add('reveal');});
+  var ro=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){en.target.classList.add('in');ro.unobserve(en.target);}
+    });
+  },{rootMargin:'0px 0px -8% 0px'});
+  kids.forEach(function(el){ro.observe(el);});
+}
+
+/* toc links */
+var tocLinks={};
+[].slice.call(document.querySelectorAll('#toc-list a')).forEach(function(a){
+  tocLinks[a.getAttribute('href').slice(1)]=a;
+});
+
+/* scroll spy */
+var heads=[].slice.call(document.querySelectorAll('article h2[id], article h3[id]'));
+if('IntersectionObserver' in window && heads.length && Object.keys(tocLinks).length){
+  var vis={};
+  var spy=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){vis[en.target.id]=en.boundingClientRect.top;}
+      else{delete vis[en.target.id];}
+    });
+    var best=null,btop=Infinity;
+    Object.keys(vis).forEach(function(id){
+      if(vis[id]<btop){btop=vis[id];best=id;}
+    });
+    if(best!==null){
+      Object.keys(tocLinks).forEach(function(id){
+        tocLinks[id].classList.toggle('active',id===best);
+      });
+    }
+  },{rootMargin:'-10% 0px -70% 0px'});
+  heads.forEach(function(h){spy.observe(h);});
+}
+
+/* mobile toc relocation */
+var list=document.getElementById('toc-list');
+var det=document.querySelector('.toc-mobile');
+var mq=window.matchMedia('(max-width:900px)');
+function place(){
+  if(!list||!det)return;
+  if(mq.matches){det.appendChild(list);}
+}
+if(mq.addEventListener){mq.addEventListener('change',place);}
+else if(mq.addListener){mq.addListener(place);}
+place();
+
+/* figure: coalesced vs scattered, 8 of 32 warp lanes */
+(function(){
+  var NS='http://www.w3.org/2000/svg';
+  var fig=document.getElementById('fig-coalesce');
+  if(!fig)return;
+  var svg=fig.querySelector('svg');
+  var btn=fig.querySelector('.fig-replay');
+
+  function el(tag,attrs,parent){
+    var e=document.createElementNS(NS,tag);
+    for(var k in attrs)e.setAttribute(k,attrs[k]);
+    parent.appendChild(e);
+    return e;
+  }
+
+  var pitch=36,size=26,x0L=45,x0R=425,yT=42,yC=150;
+  var perm=[0,5,2,7,1,6,3,4];
+
+  /* build static geometry once */
+  var gTl=svg.querySelector('#threads-l'),gCl=svg.querySelector('#cells-l'),gLl=svg.querySelector('#lines-l');
+  var gTr=svg.querySelector('#threads-r'),gCr=svg.querySelector('#cells-r'),gLr=svg.querySelector('#lines-r');
+  var linesL=[],linesR=[],barsR=[];
+  var i,x,cx,cellx,line;
+  for(i=0;i<8;i++){
+    x=x0L+i*pitch;cx=x+size/2;
+    el('rect',{x:x,y:yT,width:size,height:size,fill:'none',stroke:'#4a4438','stroke-width':1},gTl);
+    el('text',{x:x+size/2,y:yT+17,'text-anchor':'middle','font-family':'IBM Plex Mono, monospace','font-size':10,fill:'#4a4438'},gTl).textContent='t'+i;
+    el('rect',{x:x,y:yC,width:size,height:size,fill:'#f7f3ea',stroke:'#4a4438','stroke-width':1},gCl);
+    line=el('line',{x1:cx,y1:yT+size,x2:cx,y2:yC,stroke:'#0e7355','stroke-width':1.4,pathLength:1,'stroke-dasharray':1,'stroke-dashoffset':1,opacity:0},gLl);
+    linesL.push(line);
+  }
+  for(i=0;i<8;i++){
+    x=x0R+i*pitch;cx=x+size/2;
+    cellx=x0R+perm[i]*pitch;
+    el('rect',{x:x,y:yT,width:size,height:size,fill:'none',stroke:'#4a4438','stroke-width':1},gTr);
+    el('text',{x:x+size/2,y:yT+17,'text-anchor':'middle','font-family':'IBM Plex Mono, monospace','font-size':10,fill:'#4a4438'},gTr).textContent='t'+i;
+    el('rect',{x:cellx,y:yC,width:size,height:size,fill:'#f7f3ea',stroke:'#9c3b22','stroke-width':1,'stroke-dasharray':'3 2'},gCr);
+    line=el('line',{x1:cx,y1:yT+size,x2:cellx+size/2,y2:yC,stroke:'#9c3b22','stroke-width':1.2,pathLength:1,'stroke-dasharray':1,'stroke-dashoffset':1,opacity:0},gLr);
+    linesR.push(line);
+    barsR.push(el('rect',{x:cellx+2,y:yC+size+8,width:size-4,height:9,fill:'#9c3b22',opacity:0},svg));
+  }
+
+  var txL=document.getElementById('tx-left');
+  var txR=document.getElementById('tx-right');
+  var barL=document.getElementById('bar-l');
+
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+  function draw(e){
+    var i,p;
+    for(i=0;i<8;i++){
+      p=clamp((e-(i*0.05))/0.30,0,1);
+      linesL[i].setAttribute('stroke-dashoffset',1-p);
+      linesL[i].setAttribute('opacity',p>0?0.9:0);
+      p=clamp((e-(0.08+i*0.05))/0.30,0,1);
+      linesR[i].setAttribute('stroke-dashoffset',1-p);
+      linesR[i].setAttribute('opacity',p>0?0.85:0);
+    }
+    barL.setAttribute('width',278*clamp((e-0.62)/0.28,0,1));
+    for(i=0;i<8;i++){
+      barsR[i].setAttribute('opacity',clamp((e-(0.66+i*0.03))/0.08,0,1)*0.9);
+    }
+    txL.textContent=Math.round(clamp((e-0.75)/0.2,0,1)*1);
+    txR.textContent=Math.round(clamp((e-0.62)/0.33,0,1)*8);
+  }
+
+  function reset(){
+    txL.textContent='0';txR.textContent='0';draw(0);
+  }
+
+  var raf=null,t0=0,DUR=2600;
+  function ease(t){return t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}
+  function frame(ts){
+    if(!t0)t0=ts;
+    var t=Math.min((ts-t0)/DUR,1);
+    draw(ease(t));
+    if(t<1){raf=requestAnimationFrame(frame);}else{raf=null;}
+  }
+  function stop(){if(raf){cancelAnimationFrame(raf);raf=null;}}
+  function play(){
+    stop();reset();
+    if(rm){draw(1);return;}
+    t0=0;raf=requestAnimationFrame(frame);
+  }
+  btn.addEventListener('click',play);
+
+  if(rm){draw(1);}
+  else if('IntersectionObserver' in window){
+    var played=false;
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if(en.isIntersecting&&!played){played=true;play();io.disconnect();}
+      });
+    },{threshold:0.4});
+    io.observe(svg);
+  }else{draw(1);}
+})();
+})();
+</script>
+</body>
+</html>

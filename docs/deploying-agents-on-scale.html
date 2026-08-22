@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deploying agents on scale: what nobody tells you about scaling coding sandboxes</title>
+<meta name="description" content="An autonomous coding agent is an untrusted OS workload that runs ten to twenty minutes and eats two cores. Queue-first ingestion, ephemeral sandbox pods, JSONL logging, and queue-depth autoscaling.">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --paper:#f7f3ea;
+  --paper-deep:#efe9da;
+  --ink:#1d1a15;
+  --ink-soft:#4a4438;
+  --muted:#7a7261;
+  --rule:#dcd4c1;
+  --accent:#0e7355;
+  --accent-dark:#0a5c44;
+  --code-bg:#efe9db;
+  --code-border:#d9d0bb;
+  --sidenote-w:230px;
+  --content-w:720px;
+  --sidebar-w:225px;
+  --gap:48px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;
+  font-size:19px;
+  line-height:1.68;
+}
+::selection{background:#f5e3b8}
+
+.page{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) minmax(0,var(--content-w)) var(--sidenote-w);
+  grid-template-areas:
+    "head head head"
+    "toc  body side"
+    "foot foot foot";
+  gap:0 var(--gap);
+  justify-content:center;
+  padding:0 32px;
+}
+
+/* masthead */
+.masthead{grid-area:head;padding-top:72px}
+.kicker{
+  font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:20px;
+}
+h1{font-size:52px;line-height:1.12;font-weight:700;margin-bottom:22px;max-width:680px}
+.lede{font-size:22.5px;line-height:1.55;color:var(--ink-soft);max-width:620px;margin-bottom:30px}
+.byline{
+  display:flex;flex-wrap:wrap;gap:6px 26px;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:10px 2px;margin-bottom:40px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;color:var(--muted);
+}
+
+/* toc */
+nav.toc{
+  grid-area:toc;position:sticky;top:40px;align-self:start;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+}
+.toc-label{letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:500}
+#toc-list{list-style:none}
+#toc-list a{
+  display:block;padding:4px 0 4px 12px;border-left:1px solid var(--rule);
+  color:var(--ink-soft);text-decoration:none;line-height:1.5;
+}
+#toc-list a:hover{color:var(--accent-dark)}
+#toc-list a.active{color:var(--accent-dark);border-left:2px solid var(--accent-dark);padding-left:11px;font-weight:600}
+details.toc-mobile{display:none}
+details.toc-mobile summary{
+  cursor:pointer;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);padding:6px 0;list-style:none;
+}
+details.toc-mobile[open] summary{border-bottom:1px solid var(--rule);margin-bottom:6px}
+details.toc-mobile #toc-list{padding-bottom:8px}
+
+/* article */
+article{grid-area:body;padding-bottom:24px;min-width:0}
+.margin{grid-area:side}
+article p{margin:0 0 1.25em}
+article h2{font-size:31px;line-height:1.25;font-weight:700;margin:2.1em 0 .7em;scroll-margin-top:32px}
+.secnum{
+  display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;font-weight:500;color:var(--accent-dark);margin-right:10px;
+}
+h3{font-size:22px;line-height:1.35;font-weight:700;margin:1.7em 0 .5em;scroll-margin-top:32px}
+hr.sect{border:0;border-top:1px solid var(--rule);margin:56px 0}
+strong,b{font-weight:600}
+
+article :not(pre)>code, .refs code{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:.82em;background:var(--code-bg);
+  border:1px solid var(--code-border);border-radius:3px;padding:.06em .3em;
+}
+pre{
+  background:var(--code-bg);border:1px solid var(--code-border);border-radius:4px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 1.5em;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:14px;line-height:1.6;color:var(--ink);tab-size:4;
+}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+.c{color:#8a8171;font-style:italic}
+.k{color:var(--accent-dark);font-weight:500}
+.n{color:#8a5a17}
+.s{color:#6a4a8f}
+.hl{display:block;background:#f5e3b8;margin:0 -18px;padding:0 18px}
+
+article ul,article ol{margin:0 0 1.25em;padding-left:26px}
+article li{margin:.3em 0}
+article li::marker{color:var(--muted)}
+
+blockquote{
+  margin:1.8em 0;background:var(--paper-deep);
+  border-left:3px solid var(--accent-dark);padding:14px 20px;
+}
+blockquote .lbl{
+  display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:6px;
+}
+blockquote p{margin:0;font-size:17.5px;line-height:1.6}
+blockquote p+p{margin-top:.6em}
+
+table{width:100%;border-collapse:collapse;margin:1.8em 0;font-size:16.5px;line-height:1.5}
+caption{
+  caption-side:top;text-align:left;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:10px;
+}
+th{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);text-align:left;
+  border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule);
+  padding:8px 16px 8px 0;vertical-align:bottom;
+}
+td{border-bottom:1px solid var(--rule);padding:9px 16px 9px 0;vertical-align:top}
+tbody tr:last-child td{border-bottom:1.5px solid var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.danger td{background:#f3e4da}
+td.good{color:var(--accent-dark);font-weight:600}
+td.bad{color:#9c3b22;font-weight:600}
+
+sup.ref{
+  font-size:11.5px;line-height:0;color:var(--accent-dark);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;margin-left:1px;
+}
+.sidenote{
+  float:right;clear:right;width:var(--sidenote-w);
+  margin-right:calc(-1 * (var(--gap) + var(--sidenote-w)));
+  margin-top:.25rem;margin-bottom:1rem;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;line-height:1.55;color:var(--ink-soft);
+}
+.sn-num{color:var(--muted);margin-right:4px}
+
+figure.figure{
+  margin:2em 0;background:var(--paper-deep);
+  border:1px solid var(--rule);padding:18px 18px 12px;
+}
+figure.figure svg{display:block;width:100%;height:auto}
+.fig-readout{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px;
+  margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+.fig-readout>div{border-top:1px solid var(--rule);padding-top:8px}
+.fig-label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.val{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig-state{grid-column:1/-1;font-size:11.5px;color:var(--accent-dark)}
+.fig-state.bad{color:#9c3b22}
+.fig-foot{
+  display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  margin-top:12px;border-top:1px solid var(--rule);padding-top:10px;
+}
+figcaption{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;line-height:1.55;color:var(--muted);
+}
+figcaption strong{color:var(--accent-dark);font-weight:500}
+.fig-replay{
+  flex-shrink:0;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-dark);background:none;border:1px solid var(--rule);
+  padding:5px 12px;cursor:pointer;
+}
+.fig-replay:hover{color:var(--accent);border-color:var(--accent-dark)}
+
+ol.refs{list-style:decimal;padding-left:22px;margin-top:1em;font-size:16px;color:var(--ink-soft)}
+ol.refs li{margin-bottom:.45em}
+
+footer{
+  grid-area:foot;margin-top:72px;border-top:1px solid var(--rule);
+  padding-top:14px;display:flex;flex-wrap:wrap;gap:6px 26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;color:var(--muted);
+}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent-dark);text-decoration:underline}
+
+article a{
+  color:var(--accent-dark);text-decoration:none;
+  background-image:linear-gradient(currentColor,currentColor);
+  background-repeat:no-repeat;background-position:0 100%;
+  background-size:100% 1px;transition:background-size .25s ease,color .15s ease;
+}
+article a:hover{color:var(--accent);background-size:100% 2px}
+
+.js .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+button:focus-visible,a:focus-visible,summary:focus-visible{
+  outline:2px solid var(--accent-dark);outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .js .reveal{transition:none;opacity:1;transform:none}
+}
+
+@media (max-width:1180px){
+  .page{grid-template-columns:minmax(0,var(--content-w));grid-template-areas:"head" "toc" "body" "foot"}
+  nav.toc{position:static;margin-bottom:8px}
+  .margin{display:none}
+  .sidenote{
+    float:none;width:auto;margin:1.2em 0;
+    padding:12px 16px;background:var(--paper-deep);
+  }
+}
+
+@media (max-width:900px){
+  h1{font-size:40px;line-height:1.18}
+  .lede{font-size:20px}
+  pre{font-size:12.5px}
+  table{display:block;overflow-x:auto}
+  .fig-readout{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .js nav.toc{display:none}
+  .js details.toc-mobile{display:block}
+}
+
+@media (max-width:520px){
+  .page{padding:0 18px}
+  h1{font-size:30px;line-height:1.25}
+  .byline{gap:4px 16px;font-size:12px}
+  figure.figure{padding:12px 12px 8px}
+  .hl{margin:0 -14px;padding:0 14px}
+}
+
+
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <p class="kicker">ai agents · infrastructure · production lessons</p>
+  <h1>Deploying agents on scale: what nobody tells you about scaling coding sandboxes</h1>
+  <p class="lede">An autonomous coding agent is not an API microservice. It is an untrusted operating system workload that runs for ten to twenty minutes, eats two cores, and clones arbitrary repositories. Here is the architecture that survives that, learned the hard way.</p>
+  <div class="byline"><span>May 2026</span><span>7 min read</span><span>tags: ai, agents, production</span><span><a href="../index.html">archives home</a></span></div>
+</header>
+
+<nav class="toc" aria-label="Table of contents">
+  <p class="toc-label">Contents</p>
+  <ol id="toc-list">
+    <li><a href="#worked-on-my-machine">0 · It worked on my machine</a></li>
+    <li><a href="#fall-apart">1 · Why simple setups fall apart</a></li>
+    <li><a href="#architecture">2 · The architecture that works</a></li>
+    <li><a href="#three-things">3 · Queues, sandboxes, JSONL logs</a></li>
+    <li><a href="#tradeoffs">4 · Isolation tradeoffs</a></li>
+    <li><a href="#autoscaling">5 · Autoscaling ties it together</a></li>
+    <li><a href="#summary">6 · The honest summary</a></li>
+    <li><a href="#references">References</a></li>
+  </ol>
+  <details class="toc-mobile">
+    <summary>Contents</summary>
+  </details>
+</nav>
+
+<article>
+<h2 id="worked-on-my-machine"><span class="secnum">0</span>It worked on my machine</h2>
+<p>I am building an autonomous AI coding agent. It clones a repository, checks out a branch, invokes an LLM, writes some tests, runs them, and opens a pull request. It worked beautifully on my machine.</p>
+<p>Then I exposed a raw Express webhook, threw a couple of parallel test requests at it, and the server locked up. The Linux Out-of-Memory killer terminated my Node process. My host filesystem got corrupted by concurrent git lock files. My gateway threw 504 timeouts. I had to SSH in and restart everything manually.<sup class="ref">1</sup></p>
+<div class="sidenote"><span class="sn-num">fn 1</span>Concurrent git operations collide on <code>index.lock</code> files in the same worktree. Two jobs sharing one checkout directory is not a race you can tune away; it is a guarantee of corruption.</div>
+<p>That experience is what made me actually think about production agent deployments. Deploying a heavy autonomous coding agent is nothing like deploying a standard API microservice. You are not scaling HTTP requests. You are scaling untrusted operating system workloads, and that requires a completely different mental model.</p>
+<p>This is the architecture I arrived at, and what I would do differently.</p>
+<hr class="sect">
+
+<h2 id="fall-apart"><span class="secnum">1</span>Why simple agent setups fall apart</h2>
+<p>When you run agent shell commands directly on your bare-metal host, the runner has full access to your environment. If the LLM writes an unsafe script or the cloned repository contains malicious install hooks, it can read your secrets, delete files, or quietly install a backdoor. This is not a theoretical concern. It happens.</p>
+<p>Beyond security, three operational problems show up fast when you increase concurrency:</p>
+<h3>Resource exhaustion</h3>
+<p>A single agent running <code>npm install</code>, compiling TypeScript, and executing a full test suite consumes around two cores and 1.5 GB of RAM. Run ten of those in parallel and a standard VM hits CPU starvation within minutes. The system becomes unresponsive and jobs start timing out or failing silently.</p>
+<h3>Network gateway timeouts</h3>
+<p>AI agents are slow by nature. They plan, reason, write code, verify it, and sometimes loop back to fix mistakes. A single run takes ten to twenty minutes. If your HTTP connection stays open waiting for a response, your reverse proxy (Nginx, Caddy, Cloudflare) terminates the connection long before the agent finishes. The user sees a failed request even though the work is still running in the background.</p>
+<h3>Filesystem collisions</h3>
+<p>If two concurrent jobs clone or run commands in the same workspace path, git and package managers throw lock exceptions. Both jobs crash and neither produces output.</p>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>None of these are edge cases. They are the default outcomes of running untrusted, long-running, resource-hungry workloads behind a synchronous request-response cycle.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="architecture"><span class="secnum">2</span>The architecture that actually works</h2>
+<p>To handle 100 or more concurrent agent jobs without the system falling apart, separate three concerns: ingestion, scheduling, and execution. None of them should live in the same synchronous request-response cycle.</p>
+<pre><code> webhook / api request
+         |
+         | 1 validate and acknowledge
+         v
+ express api gateway &lt;------------------------------.
+    |            \                                  |
+    | 3 push task \ 2 write job metadata            | 9 read log file,
+    v              v                                 |   stream status
+ queue layer       jsonl/json files on disk &lt;- 8 append logs
+ [ redis queue ]           ^
+    | 4 throttled dequeue  |
+    v                      |
+ bullmq workers -----------'
+    | 5 provision ephemeral sandbox pod
+    v
+ kubernetes api server
+    | 6 start isolated runner
+    v
+ sandbox pod 1 ... pod N -- 7 clone repo, run agent --'</code></pre>
+<p>The ingestion layer receives the webhook and returns a job ID within milliseconds. The scheduling layer manages concurrency so the cluster never gets overloaded. The execution layer runs each job in a completely isolated container that is destroyed when the work is done. Disk-based logging makes the system observable without burning memory. The original sketch I drew of these flows lives at <a href="../bin/assests/image.png" rel="noopener">bin/assests/image.png</a>.</p>
+
+<figure class="figure" id="fig-scale">
+  <svg viewBox="0 0 760 240" role="img" aria-label="Schematic of queue backpressure and autoscaling. Jobs arrive faster than three pods drain them, the queue grows to six, a fourth pod spins up, the queue drains to zero, and the extra pod goes away again.">
+    <text x="40" y="26" font-family="IBM Plex Mono, monospace" font-size="11" fill="#7a7261" letter-spacing="1">WEBHOOK</text>
+    <rect x="40" y="96" width="120" height="48" fill="#f7f3ea" stroke="#4a4438"></rect>
+    <text x="100" y="118" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">returns</text>
+    <text x="100" y="133" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#1d1a15">job id in ms</text>
+    <line x1="160" y1="120" x2="228" y2="120" stroke="#4a4438" stroke-width="1.4"></line>
+    <path d="M224 116 L232 120 L224 124 Z" fill="#4a4438"></path>
+    <text x="196" y="108" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#7a7261">enqueue</text>
+    <text x="245" y="26" font-family="IBM Plex Mono, monospace" font-size="11" fill="#7a7261" letter-spacing="1">QUEUE DEPTH</text>
+    <rect x="240" y="40" width="90" height="170" fill="none" stroke="#4a4438"></rect>
+    <g id="ag-jobs"></g>
+    <line x1="330" y1="125" x2="392" y2="125" stroke="#4a4438" stroke-width="1.4"></line>
+    <path d="M388 121 L396 125 L388 129 Z" fill="#4a4438"></path>
+    <text x="362" y="113" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#7a7261">drain</text>
+    <text x="500" y="26" font-family="IBM Plex Mono, monospace" font-size="11" fill="#7a7261" letter-spacing="1">SANDBOX PODS</text>
+    <g id="ag-pods" font-family="IBM Plex Mono, monospace" font-size="11"></g>
+    <rect id="ag-node" x="668" y="86" width="72" height="78" fill="none" stroke="#0a5c44" stroke-width="1.5" stroke-dasharray="5 3" opacity="0"></rect>
+    <text id="ag-nodelbl" x="704" y="180" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9" fill="#0a5c44" opacity="0">autoscaler node</text>
+  </svg>
+  <div class="fig-readout">
+    <div><span class="fig-label">queued jobs</span><span class="val" id="sc-q">0</span></div>
+    <div><span class="fig-label">running pods</span><span class="val" id="sc-p">3</span></div>
+    <div><span class="fig-label">peak depth</span><span class="val" id="sc-peak">6</span></div>
+    <div><span class="fig-label">webhook latency</span><span class="val">ms, constant</span></div>
+    <div class="fig-state" id="sc-state">backpressure holds: callers get job ids instantly while capacity follows demand</div>
+  </div>
+  <div class="fig-foot">
+    <figcaption><strong>Fig. 1.</strong> Schematic of backpressure and scale-out, not measured data. Arrivals outrun three pods, depth peaks at six, the autoscaler adds capacity (green dashed outline), the queue drains, and the extra node retires. The webhook chip never changes.</figcaption>
+    <button class="fig-replay" type="button">Replay</button>
+  </div>
+</figure>
+
+<hr class="sect">
+
+<h2 id="three-things"><span class="secnum">3</span>The three things to get right</h2>
+<h3>Asynchronous job queuing</h3>
+<p>The single most important change is to stop waiting for the agent to finish before responding to the HTTP request. Return a job ID immediately, write the initial status to disk, push the task into a queue, and close the connection. The client polls for status updates.<sup class="ref">2</sup></p>
+<div class="sidenote"><span class="sn-num">fn 2</span>This is exactly the shape of the flow in Fig. 1: the webhook chip stays constant no matter what the queue does.</div>
+<p>This one change eliminates gateway timeouts entirely. It also gives you natural backpressure. When 100 requests arrive simultaneously, only a fixed number start running; the rest wait in Redis without consuming CPU or memory. You control the concurrency cap and tune it to your hardware.</p>
+<p>BullMQ makes this straightforward. Set a concurrency limit on your workers and the library handles the rest. If a worker crashes mid-job, BullMQ retries automatically. Add a new worker process and it picks up from the queue without coordination overhead.</p>
+<h3>Ephemeral sandbox pods</h3>
+<p>Running agent code in an isolated container separates a toy from a production system. When a job starts, your worker calls the Kubernetes API to create a Pod with a minimal base image, strict limits, and no access to internal cluster services:</p>
+<pre><code><span class="k">resources:</span>
+  <span class="k">limits:</span>
+    cpu: <span class="s">"2"</span>
+    memory: <span class="s">"2Gi"</span>
+  <span class="k">requests:</span>
+    cpu: <span class="s">"500m"</span>
+    memory: <span class="s">"512Mi"</span></code></pre>
+<p>Inside that Pod the agent can clone repositories, install packages, run tests, and push commits to GitHub. It cannot reach your database, your Redis instance, or any other running Pod. When the job finishes, the worker deletes the Pod and all ephemeral state is gone; cluster resources return immediately for the next job.</p>
+<p>This model also makes horizontal scaling trivial. Run workers across multiple physical machines and the Kubernetes scheduler distributes Pods automatically. Adding a VM adds capacity without application-level changes.</p>
+<h3>JSONL logging for real-time observability</h3>
+<p>Users want to know what their autonomous developer is doing while it runs. Returning a single summary JSON object after twenty minutes is not acceptable.</p>
+<p>The naive solution accumulates logs in memory and flushes at the end: memory grows without bound, data dies with the process, and polling clients get nothing until completion. The better approach writes logs to disk in JSON Lines format as they happen. Each entry is one JSON object appended to a file. The file grows incrementally and can be read from any point. When a client polls the status endpoint, the server reads the file, parses each line, and returns formatted entries alongside job metadata.</p>
+<p>Real-time observability with near-zero memory overhead and full persistence across restarts.</p>
+<hr class="sect">
+
+<h2 id="tradeoffs"><span class="secnum">4</span>Isolation tradeoffs at different stages</h2>
+<p>Not every project needs Kubernetes from day one:</p>
+<table>
+<caption>Isolation models compared (startup figures from the design notes behind this post)</caption>
+<thead><tr><th scope="col">Isolation model</th><th scope="col">Security</th><th scope="col">Memory cost</th><th scope="col" class="num">Startup</th><th scope="col">When to use</th></tr></thead>
+<tbody>
+<tr class="danger"><td>Bare metal host</td><td class="bad">none</td><td>negligible</td><td class="num">instant</td><td>personal scripts only</td></tr>
+<tr><td>Local Docker daemon</td><td>medium</td><td>low</td><td class="num">1 to 2 s</td><td>early stage, single VM, private repos</td></tr>
+<tr><td>Kubernetes Pods</td><td class="good">high</td><td>medium</td><td class="num">2 to 4 s</td><td>production, multi-tenant, external users</td></tr>
+</tbody>
+</table>
+<p>On a single Hetzner VM with low traffic and trusted repositories, Docker is a reasonable middle ground. If untrusted users can point the agent at arbitrary repositories, Kubernetes with tight NetworkPolicies is the only responsible choice.</p>
+<hr class="sect">
+
+<h2 id="autoscaling"><span class="secnum">5</span>How autoscaling ties it together</h2>
+<p>The power shows up when you combine BullMQ queue depth with cluster autoscaling. Configure the cluster to watch queue length and spin up additional VM nodes when the backlog exceeds a threshold. When the queue drains, the extra nodes terminate and you stop paying for them.<sup class="ref">3</sup></p>
+<div class="sidenote"><span class="sn-num">fn 3</span>Kubernetes Event-driven Autoscaling (KEDA) is the common bridge between Redis queue depth and replica counts; the plain Cluster Autoscaler then adds or removes the VMs underneath.</div>
+<p>Infrastructure cost tracks actual usage almost perfectly. At 3am with nobody submitting jobs, you run minimal infrastructure. During a spike the cluster expands automatically and contracts when the work is done.</p>
+<p>Pre-pull sandbox images on each node to eliminate the download penalty: with a cached image, a new Pod goes from scheduled to running in under two seconds.</p>
+<hr class="sect">
+
+<h2 id="summary"><span class="secnum">6</span>The honest summary</h2>
+<p>None of this is complicated once you understand why each piece exists. The queue exists because HTTP connections are fragile and agents are slow. Sandbox Pods exist because agent code is untrusted and resource-hungry. JSONL logging exists because memory is finite and processes crash.</p>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>Build for composition, not for scale. Start with a single VM running K3s and local Redis for almost nothing; scale horizontally to a multi-cloud cluster later without changing application code. Only the infrastructure configuration scales up.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="references"><span class="secnum">7</span>References</h2>
+<ol class="refs">
+<li><a href="https://docs.bullmq.io/" rel="noopener">BullMQ documentation</a>: worker concurrency, retries, and queue events.</li>
+<li><a href="https://kubernetes.io/docs/concepts/workloads/pods/" rel="noopener">Kubernetes Pods concepts</a>: lifecycle, resource requests and limits.</li>
+<li><a href="https://keda.sh/" rel="noopener">KEDA</a>: event-driven autoscaling from queue depth.</li>
+<li><a href="https://jsonlines.org/" rel="noopener">JSON Lines</a>: the one-object-per-line log format used for observability.</li>
+<li>Local artifacts: <code>bin/blogs/deploying-agents-on-scale.md</code> (original note) and <code>bin/assests/image.png</code> (hand-drawn architecture sketch).</li>
+</ol>
+</article>
+
+<div class="margin"></div>
+
+<footer>
+<span>manish biswal · archives</span>
+  <span>systems notes / ai infrastructure</span>
+  <a href="../index.html">home</a>
+  <a href="dl/optimizer-state.html">older: optimizer state</a>
+  <a href="dl/token_to_matrix_visualization.html">newer: token shapes</a>
+</footer>
+
+</div>
+<script>
+
+(function(){
+'use strict';
+document.documentElement.classList.add('js');
+var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* scroll reveal: hidden states exist only when JS runs */
+var kids=[].slice.call(document.querySelectorAll('article > *'));
+if(!rm && 'IntersectionObserver' in window){
+  kids.forEach(function(el){el.classList.add('reveal');});
+  var ro=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){en.target.classList.add('in');ro.unobserve(en.target);}
+    });
+  },{rootMargin:'0px 0px -8% 0px'});
+  kids.forEach(function(el){ro.observe(el);});
+}
+
+/* toc links */
+var tocLinks={};
+[].slice.call(document.querySelectorAll('#toc-list a')).forEach(function(a){
+  tocLinks[a.getAttribute('href').slice(1)]=a;
+});
+
+/* scroll spy */
+var heads=[].slice.call(document.querySelectorAll('article h2[id], article h3[id]'));
+if('IntersectionObserver' in window && heads.length && Object.keys(tocLinks).length){
+  var vis={};
+  var spy=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){vis[en.target.id]=en.boundingClientRect.top;}
+      else{delete vis[en.target.id];}
+    });
+    var best=null,btop=Infinity;
+    Object.keys(vis).forEach(function(id){
+      if(vis[id]<btop){btop=vis[id];best=id;}
+    });
+    if(best!==null){
+      Object.keys(tocLinks).forEach(function(id){
+        tocLinks[id].classList.toggle('active',id===best);
+      });
+    }
+  },{rootMargin:'-10% 0px -70% 0px'});
+  heads.forEach(function(h){spy.observe(h);});
+}
+
+/* mobile toc relocation */
+var list=document.getElementById('toc-list');
+var det=document.querySelector('.toc-mobile');
+var mq=window.matchMedia('(max-width:900px)');
+function place(){
+  if(!list||!det)return;
+  if(mq.matches){det.appendChild(list);}
+}
+if(mq.addEventListener){mq.addEventListener('change',place);}
+else if(mq.addListener){mq.addListener(place);}
+place();
+})();
+
+(function(){
+'use strict';
+
+var fig=document.getElementById('fig-scale');
+if(fig){
+  var NS='http://www.w3.org/2000/svg';
+  var gJobs=fig.querySelector('#ag-jobs');
+  var gPods=fig.querySelector('#ag-pods');
+  var nodeRect=document.getElementById('ag-node');
+  var nodeLbl=document.getElementById('ag-nodelbl');
+  var qEl=document.getElementById('sc-q'),pEl=document.getElementById('sc-p'),peakEl=document.getElementById('sc-peak');
+  var jobs=[],podEls=[];
+  var i,r;
+  for(i=0;i<8;i++){
+    r=document.createElementNS(NS,'rect');
+    r.setAttribute('x',250);r.setAttribute('width',70);r.setAttribute('height',14);
+    r.setAttribute('fill','#efe9da');r.setAttribute('stroke','#4a4438');
+    r.setAttribute('opacity','0');r.setAttribute('y',String(196-i*19));
+    gJobs.appendChild(r);jobs.push(r);
+  }
+  var px=[400,476,552,668];
+  for(i=0;i<4;i++){
+    var g=document.createElementNS(NS,'g');
+    r=document.createElementNS(NS,'rect');
+    r.setAttribute('x',px[i]);r.setAttribute('y',100);r.setAttribute('width',76);r.setAttribute('height',40);
+    r.setAttribute('fill','#efe9da');
+    r.setAttribute('stroke',i===3?'#0a5c44':'#4a4438');
+    if(i===3)r.setAttribute('stroke-dasharray','5 3');
+    g.appendChild(r);
+    var t=document.createElementNS(NS,'text');
+    t.setAttribute('x',px[i]+38);t.setAttribute('y',124);t.setAttribute('text-anchor','middle');
+    t.setAttribute('fill','#1d1a15');t.textContent='pod-'+(i+1);
+    g.appendChild(t);
+    g.setAttribute('opacity',i===3?'0':'1');
+    gPods.appendChild(g);podEls.push(g);
+  }
+  var peak=0;
+  function depthAt(e){
+    if(e<0.05)return 0;
+    if(e<0.35)return Math.round((e-0.05)/0.30*6);
+    if(e<0.55)return 6-Math.round((e-0.35)/0.20*2);
+    if(e<0.80)return 4-Math.round((e-0.55)/0.25*3);
+    return Math.max(0,1-Math.round((e-0.80)/0.15));
+  }
+  function draw(e){
+    var d=depthAt(e);
+    peak=Math.max(peak,d);
+    for(i=0;i<8;i++){jobs[i].setAttribute('opacity',i<d?'1':'0');}
+    var scaled=(e>0.52&&e<0.94&&d>0)?1:0;
+    podEls[3].setAttribute('opacity',scaled);
+    nodeRect.setAttribute('opacity',scaled);
+    nodeLbl.setAttribute('opacity',scaled);
+    qEl.textContent=d;
+    pEl.textContent=scaled?4:3;
+    peakEl.textContent=peak;
+  }
+  function reset(){peak=0;qEl.textContent='0';draw(0);}
+  var btn=fig.querySelector('.fig-replay');
+  var raf=null,t0=0,DUR=3400;
+  function ease(x){return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
+  function frame(ts){
+    if(!t0)t0=ts;
+    var p=Math.min((ts-t0)/DUR,1);
+    draw(ease(p));
+    if(p<1){raf=requestAnimationFrame(frame);}else{raf=null;}
+  }
+  function stop(){if(raf){cancelAnimationFrame(raf);raf=null;}}
+  function play(){stop();reset();if(rm){draw(1);return;}t0=0;raf=requestAnimationFrame(frame);}
+  btn.addEventListener('click',play);
+  if(rm){draw(1);}
+  else if('IntersectionObserver' in window){
+    var played=false;
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(en){if(en.isIntersecting&&!played){played=true;play();io.disconnect();}});
+    },{threshold:0.4});
+    io.observe(fig);
+  }else{draw(1);}
+}
+})();
+</script>
+</body>
+</html>

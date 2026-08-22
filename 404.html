@@ -1,39 +1,37 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Redirecting...</title>
-    <script>
-        (function() {
-            var pathname = window.location.pathname;
-            var search = window.location.search;
-            var hash = window.location.hash;
-            var origin = window.location.origin;
-
-            // 1. If it contains "index.html/", clean and redirect
-            if (pathname.includes("index.html/")) {
-                var cleanPath = pathname.replace("index.html/", "");
-                window.location.replace(origin + cleanPath + search + hash);
-                return;
-            }
-
-            // 2. Otherwise (general 404), redirect back to the home archives page safely
-            var segs = pathname.split("/").filter(Boolean);
-            var base = "";
-            
-            // Subfolder safety check for project pages (e.g., username.github.io/archive/)
-            if (segs.length > 0 && segs[0] !== "blogs" && !segs[0].includes(".")) {
-                base = "/" + segs[0];
-            }
-            
-            window.location.replace(origin + base + "/index.html");
-        })();
-    </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>404 · archives</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f7f3ea;--ink:#1d1a15;--ink-soft:#4a4438;--muted:#7a7261;--accent-dark:#0a5c44;--rule:#dcd4c1}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--accent-dark);margin-bottom:14px}
+h1{font-size:34px;line-height:1.25;margin-bottom:10px}
+p{color:var(--ink-soft);margin-bottom:8px}
+a{color:var(--accent-dark);text-decoration:none;border-bottom:1px solid var(--accent-dark)}
+a:hover{border-bottom-width:2px}
+.meta{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin-top:18px;border-top:1px solid var(--rule);padding-top:10px}
+@media(max-width:520px){h1{font-size:26px}}
+</style>
 </head>
 <body>
-    <div style="font-family: monospace; background-color: #0b0d13; color: #cbd5e1; height: 100vh; display: flex; align-items: center; justify-content: center; font-size: 14px;">
-        redirecting to archives...
-    </div>
+<main>
+<p class="kicker">error 404 · nothing at this address</p>
+<h1>This page moved, or never existed.</h1>
+<p>Taking you back to the <a href="/index.html">archives home</a> in a moment.</p>
+<p class="meta">iamanishx.github.io · static html · no server-side routing here</p>
+<script>
+(function(){
+  setTimeout(function(){
+    location.replace(location.origin + '/index.html');
+  }, 1600);
+})();
+</script>
+</main>
 </body>
 </html>

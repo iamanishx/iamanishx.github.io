@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting...</title>
+    <script>
+        (function() {
+            var pathname = window.location.pathname;
+            var search = window.location.search;
+            var hash = window.location.hash;
+            var origin = window.location.origin;
+
+            // 1. If it contains "index.html/", clean and redirect
+            if (pathname.includes("index.html/")) {
+                var cleanPath = pathname.replace("index.html/", "");
+                window.location.replace(origin + cleanPath + search + hash);
+                return;
+            }
+
+            // 2. Otherwise (general 404), redirect back to the home archives page safely
+            var segs = pathname.split("/").filter(Boolean);
+            var base = "";
+            
+            // Subfolder safety check for project pages (e.g., username.github.io/archive/)
+            if (segs.length > 0 && segs[0] !== "blogs" && !segs[0].includes(".")) {
+                base = "/" + segs[0];
+            }
+            
+            window.location.replace(origin + base + "/index.html");
+        })();
+    </script>
+</head>
+<body>
+    <div style="font-family: monospace; background-color: #0b0d13; color: #cbd5e1; height: 100vh; display: flex; align-items: center; justify-content: center; font-size: 14px;">
+        redirecting to archives...
+    </div>
+</body>
+</html>

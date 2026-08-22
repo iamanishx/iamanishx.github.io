@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimizer state: the memory bank of deep learning</title>
+<meta name="description" content="Why vanilla SGD stalls in ravines, what AdamW remembers per parameter, how bias correction works, and why mixed precision forces an FP32 master weight copy.">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --paper:#f7f3ea;
+  --paper-deep:#efe9da;
+  --ink:#1d1a15;
+  --ink-soft:#4a4438;
+  --muted:#7a7261;
+  --rule:#dcd4c1;
+  --accent:#0e7355;
+  --accent-dark:#0a5c44;
+  --code-bg:#efe9db;
+  --code-border:#d9d0bb;
+  --sidenote-w:230px;
+  --content-w:720px;
+  --sidebar-w:225px;
+  --gap:48px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;
+  font-size:19px;
+  line-height:1.68;
+}
+::selection{background:#f5e3b8}
+
+.page{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) minmax(0,var(--content-w)) var(--sidenote-w);
+  grid-template-areas:
+    "head head head"
+    "toc  body side"
+    "foot foot foot";
+  gap:0 var(--gap);
+  justify-content:center;
+  padding:0 32px;
+}
+
+/* masthead */
+.masthead{grid-area:head;padding-top:72px}
+.kicker{
+  font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:20px;
+}
+h1{font-size:52px;line-height:1.12;font-weight:700;margin-bottom:22px;max-width:680px}
+.lede{font-size:22.5px;line-height:1.55;color:var(--ink-soft);max-width:620px;margin-bottom:30px}
+.byline{
+  display:flex;flex-wrap:wrap;gap:6px 26px;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:10px 2px;margin-bottom:40px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;color:var(--muted);
+}
+
+/* toc */
+nav.toc{
+  grid-area:toc;position:sticky;top:40px;align-self:start;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+}
+.toc-label{letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:500}
+#toc-list{list-style:none}
+#toc-list a{
+  display:block;padding:4px 0 4px 12px;border-left:1px solid var(--rule);
+  color:var(--ink-soft);text-decoration:none;line-height:1.5;
+}
+#toc-list a:hover{color:var(--accent-dark)}
+#toc-list a.active{color:var(--accent-dark);border-left:2px solid var(--accent-dark);padding-left:11px;font-weight:600}
+details.toc-mobile{display:none}
+details.toc-mobile summary{
+  cursor:pointer;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);padding:6px 0;list-style:none;
+}
+details.toc-mobile[open] summary{border-bottom:1px solid var(--rule);margin-bottom:6px}
+details.toc-mobile #toc-list{padding-bottom:8px}
+
+/* article */
+article{grid-area:body;padding-bottom:24px;min-width:0}
+.margin{grid-area:side}
+article p{margin:0 0 1.25em}
+article h2{font-size:31px;line-height:1.25;font-weight:700;margin:2.1em 0 .7em;scroll-margin-top:32px}
+.secnum{
+  display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;font-weight:500;color:var(--accent-dark);margin-right:10px;
+}
+h3{font-size:22px;line-height:1.35;font-weight:700;margin:1.7em 0 .5em;scroll-margin-top:32px}
+hr.sect{border:0;border-top:1px solid var(--rule);margin:56px 0}
+strong,b{font-weight:600}
+
+article :not(pre)>code, .refs code{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:.82em;background:var(--code-bg);
+  border:1px solid var(--code-border);border-radius:3px;padding:.06em .3em;
+}
+pre{
+  background:var(--code-bg);border:1px solid var(--code-border);border-radius:4px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 1.5em;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:14px;line-height:1.6;color:var(--ink);tab-size:4;
+}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+.c{color:#8a8171;font-style:italic}
+.k{color:var(--accent-dark);font-weight:500}
+.n{color:#8a5a17}
+.s{color:#6a4a8f}
+.hl{display:block;background:#f5e3b8;margin:0 -18px;padding:0 18px}
+
+article ul,article ol{margin:0 0 1.25em;padding-left:26px}
+article li{margin:.3em 0}
+article li::marker{color:var(--muted)}
+
+blockquote{
+  margin:1.8em 0;background:var(--paper-deep);
+  border-left:3px solid var(--accent-dark);padding:14px 20px;
+}
+blockquote .lbl{
+  display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:6px;
+}
+blockquote p{margin:0;font-size:17.5px;line-height:1.6}
+blockquote p+p{margin-top:.6em}
+
+table{width:100%;border-collapse:collapse;margin:1.8em 0;font-size:16.5px;line-height:1.5}
+caption{
+  caption-side:top;text-align:left;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:10px;
+}
+th{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);text-align:left;
+  border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule);
+  padding:8px 16px 8px 0;vertical-align:bottom;
+}
+td{border-bottom:1px solid var(--rule);padding:9px 16px 9px 0;vertical-align:top}
+tbody tr:last-child td{border-bottom:1.5px solid var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.danger td{background:#f3e4da}
+td.good{color:var(--accent-dark);font-weight:600}
+td.bad{color:#9c3b22;font-weight:600}
+
+sup.ref{
+  font-size:11.5px;line-height:0;color:var(--accent-dark);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;margin-left:1px;
+}
+.sidenote{
+  float:right;clear:right;width:var(--sidenote-w);
+  margin-right:calc(-1 * (var(--gap) + var(--sidenote-w)));
+  margin-top:.25rem;margin-bottom:1rem;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;line-height:1.55;color:var(--ink-soft);
+}
+.sn-num{color:var(--muted);margin-right:4px}
+
+figure.figure{
+  margin:2em 0;background:var(--paper-deep);
+  border:1px solid var(--rule);padding:18px 18px 12px;
+}
+figure.figure svg{display:block;width:100%;height:auto}
+.fig-readout{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px;
+  margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+.fig-readout>div{border-top:1px solid var(--rule);padding-top:8px}
+.fig-label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.val{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig-state{grid-column:1/-1;font-size:11.5px;color:var(--accent-dark)}
+.fig-state.bad{color:#9c3b22}
+.fig-foot{
+  display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  margin-top:12px;border-top:1px solid var(--rule);padding-top:10px;
+}
+figcaption{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;line-height:1.55;color:var(--muted);
+}
+figcaption strong{color:var(--accent-dark);font-weight:500}
+.fig-replay{
+  flex-shrink:0;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-dark);background:none;border:1px solid var(--rule);
+  padding:5px 12px;cursor:pointer;
+}
+.fig-replay:hover{color:var(--accent);border-color:var(--accent-dark)}
+
+ol.refs{list-style:decimal;padding-left:22px;margin-top:1em;font-size:16px;color:var(--ink-soft)}
+ol.refs li{margin-bottom:.45em}
+
+footer{
+  grid-area:foot;margin-top:72px;border-top:1px solid var(--rule);
+  padding-top:14px;display:flex;flex-wrap:wrap;gap:6px 26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;color:var(--muted);
+}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent-dark);text-decoration:underline}
+
+article a{
+  color:var(--accent-dark);text-decoration:none;
+  background-image:linear-gradient(currentColor,currentColor);
+  background-repeat:no-repeat;background-position:0 100%;
+  background-size:100% 1px;transition:background-size .25s ease,color .15s ease;
+}
+article a:hover{color:var(--accent);background-size:100% 2px}
+
+.js .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+button:focus-visible,a:focus-visible,summary:focus-visible{
+  outline:2px solid var(--accent-dark);outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .js .reveal{transition:none;opacity:1;transform:none}
+}
+
+@media (max-width:1180px){
+  .page{grid-template-columns:minmax(0,var(--content-w));grid-template-areas:"head" "toc" "body" "foot"}
+  nav.toc{position:static;margin-bottom:8px}
+  .margin{display:none}
+  .sidenote{
+    float:none;width:auto;margin:1.2em 0;
+    padding:12px 16px;background:var(--paper-deep);
+  }
+}
+
+@media (max-width:900px){
+  h1{font-size:40px;line-height:1.18}
+  .lede{font-size:20px}
+  pre{font-size:12.5px}
+  table{display:block;overflow-x:auto}
+  .fig-readout{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .js nav.toc{display:none}
+  .js details.toc-mobile{display:block}
+}
+
+@media (max-width:520px){
+  .page{padding:0 18px}
+  h1{font-size:30px;line-height:1.25}
+  .byline{gap:4px 16px;font-size:12px}
+  figure.figure{padding:12px 12px 8px}
+  .hl{margin:0 -14px;padding:0 14px}
+}
+
+
+.eq{text-align:center;font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;font-size:21px;line-height:1.55;margin:1.4em 0;color:var(--ink)}
+.eq sub,.eq sup,.eq i{font-size:.68em}
+.eq .frac{display:inline-block;text-align:center;vertical-align:middle;margin:0 6px}
+.frac .top{display:block;border-bottom:1px solid var(--ink);padding:0 10px 2px}
+.frac .bot{display:block;padding:2px 10px 0}
+
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <p class="kicker">deep learning · optimizers · adamw</p>
+  <h1>Optimizer state: the memory bank of deep learning</h1>
+  <p class="lede">Vanilla SGD forgets every step the instant it takes one, and it pays for that amnesia in oscillations. Modern optimizers keep records: a smoothed direction, a smoothed volatility, and a full-precision master copy of the weights. Here is what those records contain and why each one earns its bytes.</p>
+  <div class="byline"><span>June 2026</span><span>6 min read</span><span>tags: deeplearning, optimizers</span><span><a href="../../index.html">archives home</a></span></div>
+</header>
+
+<nav class="toc" aria-label="Table of contents">
+  <p class="toc-label">Contents</p>
+  <ol id="toc-list">
+    <li><a href="#navigation">0 · Training is navigation</a></li>
+    <li><a href="#sgd-fails">1 · Why vanilla SGD fails</a></li>
+    <li><a href="#adamw-history">2 · AdamW: the optimizer with history</a></li>
+    <li><a href="#moments">3 · First and second momentum</a></li>
+    <li><a href="#bias-correction">4 · Bias correction and the full update</a></li>
+    <li><a href="#master-weights">5 · FP32 master weights</a></li>
+    <li><a href="#references">References</a></li>
+  </ol>
+  <details class="toc-mobile">
+    <summary>Contents</summary>
+  </details>
+</nav>
+
+<article>
+<h2 id="navigation"><span class="secnum">0</span>Training is navigation</h2>
+<p>Training a neural network is an exercise in navigation. You are dropped into a massive, foggy landscape with millions of valleys and ridges, and your only goal is to find the lowest point, the absolute minimum loss. How you choose to take your steps matters just as much as where you are trying to go.</p>
+<p>To appreciate why modern networks train successfully at all, we have to look closely at the mathematical memory that drives them: <strong>the optimizer state</strong>.</p>
+<hr class="sect">
+
+<h2 id="sgd-fails"><span class="secnum">1</span>Why vanilla SGD fails</h2>
+<p>In the early days of deep learning, models relied on vanilla stochastic gradient descent (SGD). It is a purely reactive algorithm. It looks at the slope right under its feet, takes a step down that slope, and immediately forgets everything else.</p>
+<p>The formula is entirely memoryless:</p>
+<div class="eq">&theta;<sub>t+1</sub> = &theta;<sub>t</sub> &minus; &eta; &middot; &nabla;<sub>t</sub></div>
+<p>Where &theta; represents the model weights, &eta; is the learning rate, and &nabla;<sub>t</sub> is the gradient, the current slope.</p>
+<h3>The ravine problem</h3>
+<p>Imagine a landscape that looks like a long, narrow canyon. The floor slopes very gently toward the exit (the true minimum), but the walls of the canyon are incredibly steep. Drop a vanilla SGD optimizer into this canyon and here is what happens:</p>
+<ol>
+<li>It calculates the gradient. The slope pointing down the steep canyon walls is massive compared to the gentle slope leading toward the exit.</li>
+<li>SGD takes a massive step based on that steep slope. It violently hurtles across the canyon floor and smashes into the opposite wall.</li>
+<li>On the next step, it sees a massive slope pointing back the other way. It bounds across the floor again.</li>
+</ol>
+<p>Because SGD has no memory of its past trajectory, it spends all its energy oscillating wildly between the canyon walls. It makes almost zero progress down the length of the canyon toward the exit. In complex modern AI models, this exact behavior causes training to stall out completely.<sup class="ref">1</sup></p>
+<div class="sidenote"><span class="sn-num">fn 1</span>The oscillation is not bad luck. A reactive rule always lets the steepest local direction dominate the step, even when that direction is the useless one.</div>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>A memoryless optimizer pays for every oscillation twice: once in wasted motion across the canyon, once in progress never made along it.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="adamw-history"><span class="secnum">2</span>AdamW: the optimizer with history</h2>
+<p>To solve this lack of awareness, modern training relies on <strong>AdamW</strong>, Adam with decoupled weight decay. AdamW succeeds because it keeps records. For every single parameter in your model, the optimizer state tracks historical statistics and creates a custom, adaptive update using two historical metrics: the <strong>first momentum</strong> and the <strong>second momentum</strong>.<sup class="ref">2</sup></p>
+<div class="sidenote"><span class="sn-num">fn 2</span>&beta;<sub>1</sub> = 0.9 and &beta;<sub>2</sub> = 0.999 are the PyTorch defaults for AdamW. The mechanics hold for any choice in (0, 1); only the smoothing timescales change.</div>
+<table>
+<caption>What the optimizer state holds per parameter (typical mixed-precision setup)</caption>
+<thead><tr><th scope="col">Record</th><th scope="col">Job</th><th scope="col">Precision</th><th scope="col" class="num">Bytes</th></tr></thead>
+<tbody>
+<tr><td>Weights &theta;</td><td>what gets updated</td><td>bf16 / fp16</td><td class="num">2</td></tr>
+<tr><td>First moment m<sub>t</sub></td><td>smoothed direction</td><td>fp32</td><td class="num">4</td></tr>
+<tr><td>Second moment v<sub>t</sub></td><td>smoothed volatility</td><td>fp32</td><td class="num">4</td></tr>
+<tr><td>Master weight copy</td><td>full-precision target for tiny updates</td><td>fp32</td><td class="num">4</td></tr>
+</tbody>
+</table>
+<hr class="sect">
+
+<h2 id="moments"><span class="secnum">3</span>The mechanics of first and second momentum</h2>
+<p>The core of the optimizer state consists of two vectors that act as filters for the noisy gradients generated during training.</p>
+<h3>The first momentum (m<sub>t</sub>): the direction manager</h3>
+<p>The first momentum tracks the directional trend of the gradients over time. It functions exactly like physical momentum:</p>
+<div class="eq">m<sub>t</sub> = &beta;<sub>1</sub> &middot; m<sub>t&minus;1</sub> + (1 &minus; &beta;<sub>1</sub>) &middot; &nabla;<sub>t</sub></div>
+<ul>
+<li><strong>The work:</strong> it acts as an exponential moving average. If the gradient points in the same direction for several steps, the optimizer speeds up. If the gradient starts oscillating back and forth (like bouncing off canyon walls), the opposing signs cancel each other out in the running average.</li>
+<li><strong>The result:</strong> it flattens noisy, erratic bounces and keeps the model pushing steadily along the true path.</li>
+</ul>
+<h3>The second momentum (v<sub>t</sub>): the scale manager</h3>
+<p>The second momentum tracks the volatility, or the sheer variance, of the gradients for each parameter:</p>
+<div class="eq">v<sub>t</sub> = &beta;<sub>2</sub> &middot; v<sub>t&minus;1</sub> + (1 &minus; &beta;<sub>2</sub>) &middot; (&nabla;<sub>t</sub>)<sup>2</sup></div>
+<ul>
+<li><strong>The work:</strong> by squaring the gradient, the optimizer strips away the directional sign and focuses purely on magnitude.</li>
+<li><strong>The result:</strong> it acts as an automatic speed regulator. The final update divides the step by &radic;v<sub>t</sub>. A wildly volatile parameter with massive gradients gets divided by a large &radic;v<sub>t</sub>, shrinking its step to keep it safe. A parameter with tiny, rare gradients gets divided by a tiny &radic;v<sub>t</sub>, boosting its step so it does not get left behind. This is what makes the learning rate adaptive.</li>
+</ul>
+<hr class="sect">
+
+<h2 id="bias-correction"><span class="secnum">4</span>Bias correction and the full update</h2>
+<p>Because m<sub>t</sub> and v<sub>t</sub> are initialized at zero, the early estimates are artificially pulled toward zero. Bias correction compensates:</p>
+<div class="eq">m&#770;<sub>t</sub> = <span class="frac"><span class="top">m<sub>t</sub></span><span class="bot">1 &minus; &beta;<sub>1</sub><sup>t</sup></span></span> ,&nbsp;&nbsp; v&#770;<sub>t</sub> = <span class="frac"><span class="top">v<sub>t</sub></span><span class="bot">1 &minus; &beta;<sub>2</sub><sup>t</sup></span></span></div>
+<p>As t grows large, &beta;<sub>1</sub><sup>t</sup> &rarr; 0 and &beta;<sub>2</sub><sup>t</sup> &rarr; 0, so the corrections fade and the estimates converge to their true values. In the early steps, however, they provide an essential rescaling that prevents the optimizer from taking negligibly small steps at the start of training.<sup class="ref">3</sup></p>
+<div class="sidenote"><span class="sn-num">fn 3</span>The figure assumes a constant unit gradient so the effect is isolated: nothing about the model changes, only how fast the running average catches up to reality.</div>
+
+<figure class="figure" id="fig-bias">
+  <svg viewBox="0 0 760 240" role="img" aria-label="Line chart across 2500 training steps. The raw second moment estimate starts near zero and climbs slowly toward 1. The bias-corrected value sits at 1 from the very first step.">
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">
+      <text x="62" y="34" text-anchor="end">1.0</text>
+      <text x="62" y="119" text-anchor="end">0.5</text>
+      <text x="62" y="203" text-anchor="end">0</text>
+      <text x="200" y="218" text-anchor="middle">500</text>
+      <text x="330" y="218" text-anchor="middle">1000</text>
+      <text x="460" y="218" text-anchor="middle">1500</text>
+      <text x="590" y="218" text-anchor="middle">2000</text>
+      <text x="720" y="218" text-anchor="middle">2500</text>
+      <text x="400" y="234" text-anchor="middle" letter-spacing="1">TRAINING STEP t</text>
+      <text x="76" y="16" fill="#4a4438">raw second moment v(t)</text>
+      <text x="730" y="16" text-anchor="end" fill="#0a5c44">bias-corrected sqrt(v-hat)</text>
+    </g>
+    <line x1="70" y1="115" x2="730" y2="115" stroke="#dcd4c1" stroke-width="1"></line>
+    <line x1="70" y1="30" x2="730" y2="30" stroke="#dcd4c1" stroke-width="1"></line>
+    <line x1="70" y1="25" x2="70" y2="200" stroke="#7a7261" stroke-width="1"></line>
+    <line x1="66" y1="200" x2="730" y2="200" stroke="#7a7261" stroke-width="1"></line>
+    <polyline id="os-curve" fill="none" stroke="#4a4438" stroke-width="2" points=""></polyline>
+    <line id="os-corr" x1="70" y1="30" x2="70" y2="30" stroke="#0a5c44" stroke-width="2" stroke-dasharray="6 4"></line>
+    <circle id="os-dot" r="4" cx="70" cy="200" fill="#8a5a17" opacity="0"></circle>
+  </svg>
+  <div class="fig-readout">
+    <div><span class="fig-label">step t</span><span class="val" id="os-step">2500</span></div>
+    <div><span class="fig-label">raw v(t)</span><span class="val" id="os-raw">0.92</span></div>
+    <div><span class="fig-label">corrected v&#770;(t)</span><span class="val" id="os-cor">1.00</span></div>
+    <div><span class="fig-label">&beta;&#8322;</span><span class="val">0.999</span></div>
+    <div class="fig-state" id="os-state">bias correction restores full step size from step one; the raw estimate needs thousands of steps to catch up</div>
+  </div>
+  <div class="fig-foot">
+    <figcaption><strong>Fig. 1.</strong> Constant unit gradient, AdamW default &beta;&#8322; = 0.999. The dark curve is the raw running estimate v(t) = 1 &minus; 0.999&#7523;, still below 0.92 after 2500 steps. The green line is the bias-corrected value, which equals 1 at every single step.</figcaption>
+    <button class="fig-replay" type="button">Replay</button>
+  </div>
+</figure>
+
+<h3>The full update rule</h3>
+<p>Combine the direction manager and the scale manager and you get the unified mathematical step that updates the weights:</p>
+<div class="eq">&theta;<sub>t+1</sub> = &theta;<sub>t</sub> &minus; &eta; &middot; <span class="frac"><span class="top">m&#770;<sub>t</sub></span><span class="bot">&radic;v&#770;<sub>t</sub> + &epsilon;</span></span> &minus; &eta;&lambda;&theta;<sub>t</sub></div>
+<ul>
+<li>&eta; is your global learning rate.</li>
+<li>m&#770;<sub>t</sub>/(&radic;v&#770;<sub>t</sub> + &epsilon;) is the bias-corrected adaptive step: the smoothed direction divided by the smoothed volatility scale. The tiny constant &epsilon; prevents division by zero.</li>
+<li>&eta;&lambda;&theta;<sub>t</sub> is the <strong>decoupled</strong> weight decay term, the W in AdamW. Crucially, it is applied as a separate subtraction, not folded inside the adaptive fraction. In vanilla Adam, L2 regularization is mixed into the gradient before the adaptive scaling, which makes the effective decay rate vary per parameter. AdamW decouples it entirely, so every weight decays at a uniform, predictable rate regardless of its gradient history.</li>
+</ul>
+<pre><code>opt = torch.optim.AdamW(model.parameters(), lr=<span class="n">1e-3</span>,
+                        betas=(<span class="n">0.9</span>, <span class="n">0.999</span>), weight_decay=<span class="n">0.01</span>)   <span class="c"># defaults</span></code></pre>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>An optimizer is a tiny database with an update policy. What it remembers (direction, volatility) decides how it moves; make sure you know which memories your training run is paying for.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="master-weights"><span class="secnum">5</span>FP32 master weights in mixed precision</h2>
+<p>When scaling up large language models, storing everything in 32-bit floating-point numbers (FP32) consumes too much GPU memory. Mixed-precision training runs the active forward and backward passes in 16-bit brain floats (BF16) or half-precision floats (FP16).</p>
+<p>This introduces a massive problem called <strong>underflow</strong>. Because 16-bit floats have limited precision, they cannot represent incredibly small numbers. During an update, the step size is often a tiny fraction. Subtracting a tiny 16-bit fraction from a 16-bit weight rounds that fraction down to absolute zero. The weight never changes, and the model stops learning.<sup class="ref">4</sup></p>
+<div class="sidenote"><span class="sn-num">fn 4</span>BF16 trades mantissa bits for range, FP16 keeps more mantissa but risks overflow. Either way, increments far below the representable spacing near the weight's magnitude vanish when added.</div>
+<h3>The solution: the FP32 master weight copy</h3>
+<p>To bypass underflow, the optimizer state holds a hidden, full-precision FP32 copy of all the model weights:</p>
+<ol>
+<li>The model does its fast calculations in 16-bit to save memory.</li>
+<li>The gradients are computed and passed to the optimizer.</li>
+<li>The optimizer calculates the first and second moments.</li>
+<li>The resulting tiny update step is applied directly to the <strong>FP32 master weights</strong>. Full 32-bit precision preserves the tiny numbers instead of rounding them to zero.</li>
+<li>The freshly updated FP32 weights are cast back down to 16-bit for the next round of training.</li>
+</ol>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>Precision is a budget. Spend 16-bit where the math is bulk, keep 32-bit where tiny increments land. Without the FP32 master copy, low-precision training of modern architectures would be mathematically impossible.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="references"><span class="secnum">6</span>References</h2>
+<ol class="refs">
+<li><a href="https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html" rel="noopener">torch.optim.AdamW documentation</a>: defaults for lr, betas, and weight decay.</li>
+<li><a href="https://arxiv.org/abs/1711.05101" rel="noopener">Fixing Weight Decay Regularization in Adam</a> (Loshchilov and Hutter, 2017): the decoupled decay argument behind AdamW.</li>
+<li><a href="https://arxiv.org/abs/1412.6980" rel="noopener">Adam: A Method for Stochastic Optimization</a> (Kingma and Ba, 2014): original bias correction derivation.</li>
+<li><a href="https://arxiv.org/abs/1710.03740" rel="noopener">Mixed Precision Training</a> (Micikevicius et al., 2017): FP16 compute with FP32 master weights.</li>
+<li>Local source: <code>bin/blogs/optimizer-state.md</code>, the original markdown note this page was rewritten from.</li>
+</ol>
+</article>
+
+<div class="margin"></div>
+
+<footer>
+<span>manish biswal · archives</span>
+  <span>dl notes / optimizers</span>
+  <a href="../../index.html">home</a>
+  <a href="../deploying-agents-on-scale.html">older: agents on scale</a>
+  <a href="vectorization-coalescing.html">newer: memory movement</a>
+</footer>
+
+</div>
+<script>
+
+(function(){
+'use strict';
+document.documentElement.classList.add('js');
+var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* scroll reveal: hidden states exist only when JS runs */
+var kids=[].slice.call(document.querySelectorAll('article > *'));
+if(!rm && 'IntersectionObserver' in window){
+  kids.forEach(function(el){el.classList.add('reveal');});
+  var ro=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){en.target.classList.add('in');ro.unobserve(en.target);}
+    });
+  },{rootMargin:'0px 0px -8% 0px'});
+  kids.forEach(function(el){ro.observe(el);});
+}
+
+/* toc links */
+var tocLinks={};
+[].slice.call(document.querySelectorAll('#toc-list a')).forEach(function(a){
+  tocLinks[a.getAttribute('href').slice(1)]=a;
+});
+
+/* scroll spy */
+var heads=[].slice.call(document.querySelectorAll('article h2[id], article h3[id]'));
+if('IntersectionObserver' in window && heads.length && Object.keys(tocLinks).length){
+  var vis={};
+  var spy=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){vis[en.target.id]=en.boundingClientRect.top;}
+      else{delete vis[en.target.id];}
+    });
+    var best=null,btop=Infinity;
+    Object.keys(vis).forEach(function(id){
+      if(vis[id]<btop){btop=vis[id];best=id;}
+    });
+    if(best!==null){
+      Object.keys(tocLinks).forEach(function(id){
+        tocLinks[id].classList.toggle('active',id===best);
+      });
+    }
+  },{rootMargin:'-10% 0px -70% 0px'});
+  heads.forEach(function(h){spy.observe(h);});
+}
+
+/* mobile toc relocation */
+var list=document.getElementById('toc-list');
+var det=document.querySelector('.toc-mobile');
+var mq=window.matchMedia('(max-width:900px)');
+function place(){
+  if(!list||!det)return;
+  if(mq.matches){det.appendChild(list);}
+}
+if(mq.addEventListener){mq.addEventListener('change',place);}
+else if(mq.addListener){mq.addListener(place);}
+place();
+})();
+
+(function(){
+'use strict';
+
+var fig=document.getElementById('fig-bias');
+if(fig){
+  var curve=document.getElementById('os-curve');
+  var corr=document.getElementById('os-corr');
+  var dot=document.getElementById('os-dot');
+  var stepEl=document.getElementById('os-step');
+  var rawEl=document.getElementById('os-raw');
+  var btn=fig.querySelector('.fig-replay');
+  function px(t){return 70+650*(t/2500);}
+  function py(v){return 200-170*v;}
+  function raw(t){return 1-Math.pow(0.999,t);}
+  function draw(e){
+    var tmax=2500*e,pts='',k,t;
+    for(k=0;k<=120;k++){t=tmax*k/120;pts+=px(t).toFixed(1)+','+py(raw(t)).toFixed(1)+' ';}
+    curve.setAttribute('points',pts);
+    corr.setAttribute('x2',(70+650*e).toFixed(1));
+    dot.setAttribute('cx',px(tmax).toFixed(1));
+    dot.setAttribute('cy',py(raw(tmax)).toFixed(1));
+    dot.setAttribute('opacity',e>0?1:0);
+    stepEl.textContent=Math.round(2500*e);
+    rawEl.textContent=raw(tmax).toFixed(2);
+  }
+  function reset(){stepEl.textContent='0';rawEl.textContent='0.00';draw(0);}
+  var raf=null,t0=0,DUR=3000;
+  function ease(x){return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
+  function frame(ts){
+    if(!t0)t0=ts;
+    var p=Math.min((ts-t0)/DUR,1);
+    draw(ease(p));
+    if(p<1){raf=requestAnimationFrame(frame);}else{raf=null;}
+  }
+  function stop(){if(raf){cancelAnimationFrame(raf);raf=null;}}
+  function play(){stop();reset();if(rm){draw(1);return;}t0=0;raf=requestAnimationFrame(frame);}
+  btn.addEventListener('click',play);
+  if(rm){draw(1);}
+  else if('IntersectionObserver' in window){
+    var played=false;
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(en){if(en.isIntersecting&&!played){played=true;play();io.disconnect();}});
+    },{threshold:0.4});
+    io.observe(fig);
+  }else{draw(1);}
+}
+})();
+</script>
+</body>
+</html>

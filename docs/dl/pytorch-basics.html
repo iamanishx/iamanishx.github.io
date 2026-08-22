@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyTorch basics: tensors, autograd, and the training loop</title>
+<meta name="description" content="A working cheat sheet for PyTorch: tensor creation and reshaping, indexing, broadcasting, autograd with a verified gradient example, the minimal training loop, and classic pitfalls.">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+
+:root{
+  --paper:#f7f3ea;
+  --paper-deep:#efe9da;
+  --ink:#1d1a15;
+  --ink-soft:#4a4438;
+  --muted:#7a7261;
+  --rule:#dcd4c1;
+  --accent:#0e7355;
+  --accent-dark:#0a5c44;
+  --code-bg:#efe9db;
+  --code-border:#d9d0bb;
+  --sidenote-w:230px;
+  --content-w:720px;
+  --sidebar-w:225px;
+  --gap:48px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Source Serif 4","Iowan Old Style",Palatino,Georgia,serif;
+  font-size:19px;
+  line-height:1.68;
+}
+::selection{background:#f5e3b8}
+
+.page{
+  display:grid;
+  grid-template-columns:var(--sidebar-w) minmax(0,var(--content-w)) var(--sidenote-w);
+  grid-template-areas:
+    "head head head"
+    "toc  body side"
+    "foot foot foot";
+  gap:0 var(--gap);
+  justify-content:center;
+  padding:0 32px;
+}
+
+/* masthead */
+.masthead{grid-area:head;padding-top:72px}
+.kicker{
+  font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:20px;
+}
+h1{font-size:52px;line-height:1.12;font-weight:700;margin-bottom:22px;max-width:680px}
+.lede{font-size:22.5px;line-height:1.55;color:var(--ink-soft);max-width:620px;margin-bottom:30px}
+.byline{
+  display:flex;flex-wrap:wrap;gap:6px 26px;
+  border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:10px 2px;margin-bottom:40px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;color:var(--muted);
+}
+
+/* toc */
+nav.toc{
+  grid-area:toc;position:sticky;top:40px;align-self:start;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+}
+.toc-label{letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:500}
+#toc-list{list-style:none}
+#toc-list a{
+  display:block;padding:4px 0 4px 12px;border-left:1px solid var(--rule);
+  color:var(--ink-soft);text-decoration:none;line-height:1.5;
+}
+#toc-list a:hover{color:var(--accent-dark)}
+#toc-list a.active{color:var(--accent-dark);border-left:2px solid var(--accent-dark);padding-left:11px;font-weight:600}
+details.toc-mobile{display:none}
+details.toc-mobile summary{
+  cursor:pointer;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);padding:6px 0;list-style:none;
+}
+details.toc-mobile[open] summary{border-bottom:1px solid var(--rule);margin-bottom:6px}
+details.toc-mobile #toc-list{padding-bottom:8px}
+
+/* article */
+article{grid-area:body;padding-bottom:24px;min-width:0}
+.margin{grid-area:side}
+article p{margin:0 0 1.25em}
+article h2{font-size:31px;line-height:1.25;font-weight:700;margin:2.1em 0 .7em;scroll-margin-top:32px}
+.secnum{
+  display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;font-weight:500;color:var(--accent-dark);margin-right:10px;
+}
+h3{font-size:22px;line-height:1.35;font-weight:700;margin:1.7em 0 .5em;scroll-margin-top:32px}
+hr.sect{border:0;border-top:1px solid var(--rule);margin:56px 0}
+strong,b{font-weight:600}
+
+article :not(pre)>code, .refs code{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:.82em;background:var(--code-bg);
+  border:1px solid var(--code-border);border-radius:3px;padding:.06em .3em;
+}
+pre{
+  background:var(--code-bg);border:1px solid var(--code-border);border-radius:4px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 1.5em;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:14px;line-height:1.6;color:var(--ink);tab-size:4;
+}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+.c{color:#8a8171;font-style:italic}
+.k{color:var(--accent-dark);font-weight:500}
+.n{color:#8a5a17}
+.s{color:#6a4a8f}
+.hl{display:block;background:#f5e3b8;margin:0 -18px;padding:0 18px}
+
+article ul,article ol{margin:0 0 1.25em;padding-left:26px}
+article li{margin:.3em 0}
+article li::marker{color:var(--muted)}
+
+blockquote{
+  margin:1.8em 0;background:var(--paper-deep);
+  border-left:3px solid var(--accent-dark);padding:14px 20px;
+}
+blockquote .lbl{
+  display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent-dark);margin-bottom:6px;
+}
+blockquote p{margin:0;font-size:17.5px;line-height:1.6}
+blockquote p+p{margin-top:.6em}
+
+table{width:100%;border-collapse:collapse;margin:1.8em 0;font-size:16.5px;line-height:1.5}
+caption{
+  caption-side:top;text-align:left;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--muted);padding-bottom:10px;
+}
+th{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11.5px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-soft);text-align:left;
+  border-top:1.5px solid var(--ink);border-bottom:1px solid var(--rule);
+  padding:8px 16px 8px 0;vertical-align:bottom;
+}
+td{border-bottom:1px solid var(--rule);padding:9px 16px 9px 0;vertical-align:top}
+tbody tr:last-child td{border-bottom:1.5px solid var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.danger td{background:#f3e4da}
+td.good{color:var(--accent-dark);font-weight:600}
+td.bad{color:#9c3b22;font-weight:600}
+
+sup.ref{
+  font-size:11.5px;line-height:0;color:var(--accent-dark);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;margin-left:1px;
+}
+.sidenote{
+  float:right;clear:right;width:var(--sidenote-w);
+  margin-right:calc(-1 * (var(--gap) + var(--sidenote-w)));
+  margin-top:.25rem;margin-bottom:1rem;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:13px;line-height:1.55;color:var(--ink-soft);
+}
+.sn-num{color:var(--muted);margin-right:4px}
+
+figure.figure{
+  margin:2em 0;background:var(--paper-deep);
+  border:1px solid var(--rule);padding:18px 18px 12px;
+}
+figure.figure svg{display:block;width:100%;height:auto}
+.fig-readout{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 16px;
+  margin-top:14px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+.fig-readout>div{border-top:1px solid var(--rule);padding-top:8px}
+.fig-label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.val{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}
+.fig-state{grid-column:1/-1;font-size:11.5px;color:var(--accent-dark)}
+.fig-state.bad{color:#9c3b22}
+.fig-foot{
+  display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  margin-top:12px;border-top:1px solid var(--rule);padding-top:10px;
+}
+figcaption{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;line-height:1.55;color:var(--muted);
+}
+figcaption strong{color:var(--accent-dark);font-weight:500}
+.fig-replay{
+  flex-shrink:0;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent-dark);background:none;border:1px solid var(--rule);
+  padding:5px 12px;cursor:pointer;
+}
+.fig-replay:hover{color:var(--accent);border-color:var(--accent-dark)}
+
+ol.refs{list-style:decimal;padding-left:22px;margin-top:1em;font-size:16px;color:var(--ink-soft)}
+ol.refs li{margin-bottom:.45em}
+
+footer{
+  grid-area:foot;margin-top:72px;border-top:1px solid var(--rule);
+  padding-top:14px;display:flex;flex-wrap:wrap;gap:6px 26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;color:var(--muted);
+}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent-dark);text-decoration:underline}
+
+article a{
+  color:var(--accent-dark);text-decoration:none;
+  background-image:linear-gradient(currentColor,currentColor);
+  background-repeat:no-repeat;background-position:0 100%;
+  background-size:100% 1px;transition:background-size .25s ease,color .15s ease;
+}
+article a:hover{color:var(--accent);background-size:100% 2px}
+
+.js .reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s ease}
+.js .reveal.in{opacity:1;transform:none}
+
+button:focus-visible,a:focus-visible,summary:focus-visible{
+  outline:2px solid var(--accent-dark);outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .js .reveal{transition:none;opacity:1;transform:none}
+}
+
+@media (max-width:1180px){
+  .page{grid-template-columns:minmax(0,var(--content-w));grid-template-areas:"head" "toc" "body" "foot"}
+  nav.toc{position:static;margin-bottom:8px}
+  .margin{display:none}
+  .sidenote{
+    float:none;width:auto;margin:1.2em 0;
+    padding:12px 16px;background:var(--paper-deep);
+  }
+}
+
+@media (max-width:900px){
+  h1{font-size:40px;line-height:1.18}
+  .lede{font-size:20px}
+  pre{font-size:12.5px}
+  table{display:block;overflow-x:auto}
+  .fig-readout{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .js nav.toc{display:none}
+  .js details.toc-mobile{display:block}
+}
+
+@media (max-width:520px){
+  .page{padding:0 18px}
+  h1{font-size:30px;line-height:1.25}
+  .byline{gap:4px 16px;font-size:12px}
+  figure.figure{padding:12px 12px 8px}
+  .hl{margin:0 -14px;padding:0 14px}
+}
+
+
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <p class="kicker">pytorch · fundamentals · cheat sheet</p>
+  <h1>PyTorch basics: tensors, autograd, and the training loop</h1>
+  <p class="lede">Everything you type constantly in PyTorch, compressed into one page: how tensors are made and reshaped, how autograd walks its graph backwards, the five-line training loop, and the handful of mistakes that produce ninety percent of runtime errors.</p>
+  <div class="byline"><span>May 2026</span><span>8 min read</span><span>tags: pytorch, deep-learning, python</span><span><a href="../../index.html">archives home</a></span></div>
+</header>
+
+<nav class="toc" aria-label="Table of contents">
+  <p class="toc-label">Contents</p>
+  <ol id="toc-list">
+    <li><a href="#how-to-read">0 · How to read this sheet</a></li>
+    <li><a href="#creating">1 · Creating tensors</a></li>
+    <li><a href="#inspecting">2 · Inspecting tensors</a></li>
+    <li><a href="#reshape">3 · Reshape and dimensions</a></li>
+    <li><a href="#indexing">4 · Indexing and slicing</a></li>
+    <li><a href="#cat-stack">5 · Concatenate and stack</a></li>
+    <li><a href="#broadcasting">6 · Broadcasting and arithmetic</a></li>
+    <li><a href="#linalg">7 · Linear algebra helpers</a></li>
+    <li><a href="#seeds">8 · Random seeds</a></li>
+    <li><a href="#autograd">9 · Autograd: the core</a></li>
+    <li><a href="#blocks">10 · NN building blocks</a></li>
+    <li><a href="#training-loop">11 · Training loop pattern</a></li>
+    <li><a href="#optimizers">12 · Optimizers and schedulers</a></li>
+    <li><a href="#save-load">13 · Save and load</a></li>
+    <li><a href="#data-pipeline">14 · Data pipeline</a></li>
+    <li><a href="#utilities">15 · Tensor utilities</a></li>
+    <li><a href="#performance">16 · Memory and performance</a></li>
+    <li><a href="#pitfalls">17 · Pitfalls and gotchas</a></li>
+    <li><a href="#snippets">18 · Example snippets</a></li>
+    <li><a href="#references">References</a></li>
+  </ol>
+  <details class="toc-mobile">
+    <summary>Contents</summary>
+  </details>
+</nav>
+
+<article>
+<h2 id="how-to-read"><span class="secnum">0</span>How to read this sheet</h2>
+<p>This page compresses the working core of PyTorch into one reference: tensor creation, reshaping, indexing, broadcasting, autograd, a minimal training loop, and the pitfalls that bite everyone at least once. Sections 1 through 8 cover tensor mechanics, 9 through 15 cover learning, 16 through 18 cover performance, gotchas, and copy-paste snippets.<sup class="ref">1</sup></p>
+<div class="sidenote"><span class="sn-num">fn 1</span>API names match the current stable PyTorch release. Anything version-sensitive (like <code>torch.eig</code>) is flagged in the docs links at the bottom.</div>
+<hr class="sect">
+
+<h2 id="creating"><span class="secnum">1</span>Creating tensors</h2>
+<ul>
+<li><p>Random: <code>torch.rand(shape)</code> uniform in [0, 1); <code>torch.randn(shape)</code> normal.</p></li>
+<li><p><code>torch.Tensor(2, 3)</code> gives an uninitialized tensor (random garbage values).</p></li>
+<li><p>Zeros / ones / full: <code>torch.zeros(2,3)</code>, <code>torch.ones(2,3)</code>, <code>torch.full((2,3), 5)</code>.</p></li>
+<li><p>From Python list or NumPy: <code>torch.tensor([[1,2],[3,4]])</code>, <code>torch.from_numpy(numpy_array)</code>. The dtype follows the source NumPy dtype (for example Float64 becomes <code>torch.DoubleTensor</code>).<sup class="ref">2</sup></p></li>
+<li><p>Type-casting: <code>x.float()</code>, <code>x.long()</code>, or <code>torch.tensor(..., dtype=torch.int64)</code>.</p></li>
+<li><p>In-place ops: methods ending in <code>_</code> (like <code>x.fill_(5)</code>) modify the tensor in place.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="inspecting"><span class="secnum">2</span>Inspecting tensors</h2>
+<ul>
+<li><p><code>x.shape</code> or <code>x.size()</code></p></li>
+<li><p><code>x.dtype</code>, <code>x.device</code>, <code>x.numel()</code> (number of elements)</p></li>
+<li><p><code>x.item()</code> returns a Python scalar, but only for single-element tensors.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="reshape"><span class="secnum">3</span>Reshape and dimensions</h2>
+<ul>
+<li><p><code>x.view(new_shape)</code> works if the tensor is contiguous; <code>x.reshape(new_shape)</code> is the safer call.</p></li>
+<li><p><code>x.unsqueeze(dim)</code> adds a size-1 dim; <code>x.squeeze(dim)</code> removes one.</p></li>
+<li><p><code>x.transpose(0,1)</code> or <code>x.t()</code> for 2D; <code>x.permute(...)</code> reorders dims.</p></li>
+<li><p><code>x.contiguous()</code> produces contiguous memory before <code>.view()</code>.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="indexing"><span class="secnum">4</span>Indexing, slicing, advanced indexing</h2>
+<ul>
+<li><p>Basic slicing: <code>x[:, :2]</code>, <code>x[0,1]</code>.</p></li>
+<li><p>Fancy indexing: <code>torch.index_select(x, dim, idx_longtensor)</code>.</p></li>
+<li><p>Pair indexing: <code>x[row_idx, col_idx]</code> where both are LongTensors.</p></li>
+<li><p><code>torch.nonzero(x)</code> or <code>x.nonzero()</code> for indices of nonzero elements.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="cat-stack"><span class="secnum">5</span>Concatenate and stack</h2>
+<ul>
+<li><p><code>torch.cat([a,b], dim=0)</code>: concatenate along an existing dimension.</p></li>
+<li><p><code>torch.stack([a,b], dim=0)</code>: add a new dimension and stack.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="broadcasting"><span class="secnum">6</span>Broadcasting and arithmetic</h2>
+<ul>
+<li><p>Usual ops: <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, or functional forms: <code>torch.add</code>, <code>torch.mul</code>, and friends.</p></li>
+<li><p>Matrix multiply: <code>torch.mm(A,B)</code> for 2D, <code>torch.matmul</code> when you want broadcast-aware behavior.</p></li>
+<li><p>Batch matrix multiply: <code>torch.bmm(a, b)</code> for 3D <code>a</code> and <code>b</code>.</p></li>
+<li><p>Aggregations: <code>x.sum(dim=...)</code>, <code>x.mean(dim=...)</code>, <code>x.max(dim=...)</code>.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="linalg"><span class="secnum">7</span>Linear algebra helpers</h2>
+<ul>
+<li><p><code>torch.mm(A,B)</code>: matrix multiply (2D).</p></li>
+<li><p><code>torch.bmm(A,B)</code>: batch matrix multiply (3D).</p></li>
+<li><p><code>torch.transpose</code>, <code>torch.inverse</code> (when square), <code>torch.trace</code>, <code>torch.eig</code> and friends. Check the docs for deprecation status before relying on older solvers.<sup class="ref">3</sup></p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="seeds"><span class="secnum">8</span>Random seeds</h2>
+<pre><code>torch.manual_seed(<span class="n">42</span>)
+<span class="k">if</span> torch.cuda.is_available(): torch.cuda.manual_seed_all(<span class="n">42</span>)</code></pre>
+<hr class="sect">
+
+<h2 id="autograd"><span class="secnum">9</span>Autograd and gradients: the core</h2>
+<ul>
+<li><p>Enable tracking: <code>x = torch.ones(2,2, requires_grad=True)</code>.</p></li>
+<li><p>Forward: compute a loss scalar, <code>loss = some_fn(x)</code>.</p></li>
+<li><p>Backward: <code>loss.backward()</code> computes gradients; check <code>x.grad</code>.</p></li>
+<li><p>Zero grads before each optimizer step: <code>optimizer.zero_grad()</code> or <code>model.zero_grad()</code>.</p></li>
+<li><p>Inference / disable grad: use <code>with torch.no_grad():</code> or <code>torch.set_grad_enabled(False)</code>.</p></li>
+<li><p>Detach from graph: <code>y = x.detach()</code>, or <code>x.detach().cpu().numpy()</code>.</p></li>
+</ul>
+
+<figure class="figure" id="fig-autograd">
+  <svg viewBox="0 0 760 230" role="img" aria-label="Autograd graph for z equals mean of (x plus 2) times (x plus 5) plus 3. The forward pass lights up nodes left to right, then the backward pass sends gradients right to left, landing on x.grad equal to 2.25 per element.">
+    <g id="ag-boxes" font-family="IBM Plex Mono, monospace" font-size="13">
+      <rect x="30" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="73" y="115" text-anchor="middle" fill="#1d1a15">x</text>
+      <rect x="134" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="177" y="115" text-anchor="middle" fill="#1d1a15">(x+2)</text>
+      <rect x="238" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="281" y="115" text-anchor="middle" fill="#1d1a15">(x+5)</text>
+      <rect x="342" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="385" y="115" text-anchor="middle" fill="#1d1a15">*</text>
+      <rect x="446" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="489" y="115" text-anchor="middle" fill="#1d1a15">+3</text>
+      <rect x="550" y="88" width="86" height="44" fill="#f7f3ea" stroke="#4a4438"></rect><text x="593" y="115" text-anchor="middle" fill="#1d1a15">mean=z</text>
+    </g>
+    <g id="ag-fwd" stroke="#4a4438" stroke-width="1.4">
+      <line x1="116" y1="110" x2="130" y2="110"></line><path d="M126 106 L132 110 L126 114 Z" fill="#4a4438" stroke="none"></path>
+      <line x1="220" y1="110" x2="234" y2="110"></line><path d="M230 106 L236 110 L230 114 Z" fill="#4a4438" stroke="none"></path>
+      <line x1="324" y1="110" x2="338" y2="110"></line><path d="M334 106 L340 110 L334 114 Z" fill="#4a4438" stroke="none"></path>
+      <line x1="428" y1="110" x2="442" y2="110"></line><path d="M438 106 L444 110 L438 114 Z" fill="#4a4438" stroke="none"></path>
+      <line x1="532" y1="110" x2="546" y2="110"></line><path d="M542 106 L548 110 L542 114 Z" fill="#4a4438" stroke="none"></path>
+    </g>
+    <polyline id="ag-back" points="636,160 30,160" fill="none" stroke="#9c3b22" stroke-width="2" stroke-dasharray="6 5" pathLength="1" stroke-dashoffset="1"></polyline>
+    <polygon id="ag-back-head" points="" fill="#9c3b22" opacity="0"></polygon>
+    <text id="ag-g1" x="593" y="185" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#9c3b22" opacity="0">dz/dy = 1/4</text>
+    <text id="ag-g2" x="385" y="185" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#9c3b22" opacity="0">dy/dx = 2x + 7 = 9 at x=1</text>
+    <g id="ag-badge" opacity="0">
+      <rect x="30" y="52" width="150" height="26" fill="#efe9da" stroke="#0e7355"></rect>
+      <text x="105" y="70" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" fill="#0a5c44">x.grad = 2.250</text>
+    </g>
+    <text x="660" y="115" font-family="IBM Plex Mono, monospace" font-size="10" fill="#7a7261">forward</text>
+    <text x="660" y="164" font-family="IBM Plex Mono, monospace" font-size="10" fill="#9c3b22">backward</text>
+  </svg>
+  <div class="fig-readout">
+    <div><span class="fig-label">forward loss z</span><span class="val" id="pt-z">21.000</span></div>
+    <div><span class="fig-label">dz/dy per element</span><span class="val" id="pt-dzdy">0.250</span></div>
+    <div><span class="fig-label">x.grad (all entries)</span><span class="val" id="pt-xg">2.250</span></div>
+    <div><span class="fig-label">graph size</span><span class="val">6 nodes</span></div>
+    <div class="fig-state" id="pt-state">backward complete: every leaf that required grad received its gradient</div>
+  </div>
+  <div class="fig-foot">
+    <figcaption><strong>Fig. 1.</strong> The graph from section 18's gradient snippet: <code>z = mean((x+2)(x+5)+3)</code> on a 2&times;2 tensor of ones. Analytic check: dz/dx = (2x+7)/4 = 2.25 per element, exactly what <code>x.grad</code> reports after <code>z.backward()</code>.</figcaption>
+    <button class="fig-replay" type="button">Replay</button>
+  </div>
+</figure>
+
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>Autograd is bookkeeping, not magic: every operation records where it came from so backward can walk the same path in reverse. Detach when you mean it, zero grads when you loop, and never assume a gradient exists for a tensor you built with <code>requires_grad=False</code>.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="blocks"><span class="secnum">10</span>Common neural net building blocks</h2>
+<ul>
+<li><p>Layers: <code>torch.nn.Linear</code>, <code>torch.nn.Conv2d</code>, <code>torch.nn.Embedding</code>, <code>torch.nn.LSTM</code>, and friends.</p></li>
+<li><p>Losses: <code>torch.nn.CrossEntropyLoss()</code>, <code>torch.nn.MSELoss()</code>, <code>torch.nn.BCEWithLogitsLoss()</code>.</p></li>
+<li><p>Activations: <code>torch.nn.ReLU()</code>, <code>torch.nn.Sigmoid()</code>, <code>torch.nn.Softmax(dim=1)</code>, or functional <code>F.relu</code>.</p></li>
+</ul>
+<pre><code><span class="k">import</span> torch.nn <span class="k">as</span> nn
+<span class="k">class</span> MLP(nn.Module):
+    <span class="k">def</span> __init__(self, in_dim, hidden, out_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, out_dim)
+        )
+    <span class="k">def</span> forward(self, x):
+        <span class="k">return</span> self.net(x)</code></pre>
+<hr class="sect">
+
+<h2 id="training-loop"><span class="secnum">11</span>Training loop: the minimal pattern</h2>
+<pre><code>model.train()
+<span class="k">for</span> epoch <span class="k">in</span> range(epochs):
+    <span class="k">for</span> xb, yb <span class="k">in</span> dataloader:
+        xb, yb = xb.to(device), yb.to(device)
+        preds = model(xb)
+        loss = criterion(preds, yb)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()</code></pre>
+<p>For evaluation:</p>
+<pre><code>model.eval()
+<span class="k">with</span> torch.no_grad():
+    <span class="k">for</span> xb, yb <span class="k">in</span> val_loader:
+        preds = model(xb)
+        <span class="c"># compute metrics</span></code></pre>
+<hr class="sect">
+
+<h2 id="optimizers"><span class="secnum">12</span>Optimizers and schedulers</h2>
+<ul>
+<li><p>Common optimizers: <code>torch.optim.SGD(model.parameters(), lr=...)</code>, <code>torch.optim.Adam(...)</code>.</p></li>
+<li><p>Zero grads: <code>optimizer.zero_grad()</code>; step: <code>optimizer.step()</code>.</p></li>
+<li><p>LR schedulers: <code>torch.optim.lr_scheduler.StepLR</code>, <code>ReduceLROnPlateau</code>, and friends. For what the step actually updates, see the companion note on <a href="optimizer-state.html">optimizer state</a>.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="save-load"><span class="secnum">13</span>Save and load</h2>
+<ul>
+<li><p>Save weights: <code>torch.save(model.state_dict(), "m.pt")</code>.</p></li>
+</ul>
+<pre><code>model = MyModel(...)
+model.load_state_dict(torch.load(<span class="s">"m.pt"</span>, map_location=device))
+model.to(device)</code></pre>
+<ul>
+<li><p>Saving the whole model (<code>torch.save(model, "full_model.pt")</code> then <code>torch.load(...)</code>) works but is less recommended: it pickles the module object and couples your checkpoint to source layout.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="data-pipeline"><span class="secnum">14</span>Data pipeline</h2>
+<ul>
+<li><p>Implement <code>torch.utils.data.Dataset</code> (implement <code>__len__</code> and <code>__getitem__</code>).</p></li>
+<li><p>Wrap in <code>DataLoader(dataset, batch_size=..., shuffle=True, num_workers=4)</code>.</p></li>
+<li><p>Use <code>torchvision.transforms</code> for images or <code>torchtext</code> / custom transforms for text.</p></li>
+<li><p>For reproducibility, be careful with <code>num_workers&gt;0</code> together with random seeds: worker processes need their own seeding strategy.</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="utilities"><span class="secnum">15</span>Useful tensor utilities</h2>
+<ul>
+<li><p><code>torch.arange(start, end)</code>, like NumPy arange; <code>torch.linspace(start, end, steps)</code>.</p></li>
+<li><p><code>torch.where(cond, x, y)</code>: elementwise condition.</p></li>
+<li><p><code>torch.topk(x, k)</code>, <code>torch.argmax(x, dim)</code>, <code>torch.argsort</code>.</p></li>
+<li><p><code>x.view(-1)</code>, <code>x.flatten()</code>.</p></li>
+<li><p><code>x.expand(...)</code> vs <code>x.repeat(...)</code>: repeat creates new memory, expand is view-like.</p></li>
+<li><p><code>x.clone()</code> to copy; <code>x.cpu().numpy()</code> to get a NumPy array (after <code>detach()</code> if it requires grad).</p></li>
+</ul>
+<hr class="sect">
+
+<h2 id="performance"><span class="secnum">16</span>Memory and performance tips</h2>
+<ul>
+<li><p>Prefer <code>torch.no_grad()</code> when evaluating: it saves memory as well as time.</p></li>
+<li><p>Move whole batches to the device once, not element by element.</p></li>
+<li><p>Avoid frequent <code>.cpu()</code> / <code>.numpy()</code> calls inside training loops; they force syncs.</p></li>
+<li><p>Use <code>pin_memory=True</code> in DataLoader for faster CPU-to-GPU transfers during GPU training.</p></li>
+<li><p>For multi-GPU training consider <code>torch.nn.DataParallel</code> or <code>torch.nn.parallel.DistributedDataParallel</code> (the latter is the modern default).</p></li>
+</ul>
+<blockquote>
+<span class="lbl">Lesson</span>
+<p>The GPU starves on transfers, not on math (see <a href="vectorization-coalescing.html">vectorization and coalescing</a> for why). Every sync point you remove from the inner loop is free speed.</p>
+</blockquote>
+<hr class="sect">
+
+<h2 id="pitfalls"><span class="secnum">17</span>Pitfalls and gotchas</h2>
+<table>
+<caption>Mistakes everyone makes once</caption>
+<thead><tr><th scope="col">Mistake</th><th scope="col">Symptom</th><th scope="col">Fix</th></tr></thead>
+<tbody>
+<tr class="danger"><td>Mixing CPU and CUDA tensors</td><td><code>RuntimeError</code> about device mismatch</td><td>move both operands with <code>.to(device)</code></td></tr>
+<tr class="danger"><td>Skipping <code>optimizer.zero_grad()</code></td><td>gradients accumulate across batches</td><td>zero before every <code>loss.backward()</code></td></tr>
+<tr class="danger"><td>Calling <code>.item()</code> on non-scalar tensors</td><td>error at runtime</td><td>index or reduce to a single element first</td></tr>
+<tr class="danger"><td>In-place ops on tensors that require grad</td><td>autograd errors or silent corruption</td><td>prefer out-of-place ops; know when in-place breaks the graph</td></tr>
+<tr class="danger"><td>Normalizing using whole-dataset statistics</td><td>silent data leakage</td><td>compute stats on the training fold only</td></tr>
+</tbody>
+</table>
+<hr class="sect">
+
+<h2 id="snippets"><span class="secnum">18</span>Short example snippets</h2>
+<p>Create a tensor, reshape, and sum:</p>
+<pre><code>x = torch.arange(<span class="n">6</span>).view(<span class="n">2</span>,<span class="n">3</span>)   <span class="c"># [[0,1,2],[3,4,5]]</span>
+col_sum = x.sum(dim=<span class="n">0</span>)          <span class="c"># collapse rows: [3, 5, 7]</span>
+row_sum = x.sum(dim=<span class="n">1</span>)          <span class="c"># collapse columns: [3, 12]</span></code></pre>
+<div class="sidenote"><span class="sn-num">fn 4</span>The axis argument names the dimension being removed. <code>sum(dim=0)</code> collapses rows and leaves one value per column; <code>sum(dim=1)</code> collapses columns and leaves one value per row.</div>
+<p>Gradients:</p>
+<pre><code>x = torch.ones(<span class="n">2</span>,<span class="n">2</span>, requires_grad=<span class="k">True</span>)
+y = (x + <span class="n">2</span>) * (x + <span class="n">5</span>) + <span class="n">3</span>
+z = y.mean()
+z.backward()
+print(x.grad)  <span class="c"># gradient of z wrt x, all entries 2.25</span></code></pre>
+<p>Batch matrix multiply:</p>
+<pre><code>a = torch.rand(<span class="n">3</span>,<span class="n">4</span>,<span class="n">5</span>)
+b = torch.rand(<span class="n">3</span>,<span class="n">5</span>,<span class="n">4</span>)
+c = torch.bmm(a,b)   <span class="c"># shape (3, 4, 4)</span></code></pre>
+<hr class="sect">
+
+<h2 id="references"><span class="secnum">19</span>References</h2>
+<ol class="refs">
+<li><a href="https://pytorch.org/docs/stable/index.html" rel="noopener">PyTorch documentation</a>: stable API reference.</li>
+<li><a href="https://pytorch.org/tutorials/" rel="noopener">Official PyTorch tutorials</a>: tensors, autograd, datasets.</li>
+<li><a href="https://pytorch.org/docs/stable/linalg.html" rel="noopener">torch.linalg</a>: the current linear algebra namespace.</li>
+<li>Local source: <code>bin/blogs/pytorch-basics.md</code>, the original markdown note this page was rewritten from.</li>
+</ol>
+</article>
+
+<div class="margin"></div>
+
+<footer>
+<span>manish biswal · archives</span>
+  <span>dl notes / pytorch</span>
+  <a href="../../index.html">home</a>
+  <a href="token_to_matrix_visualization.html">older: token shapes</a>
+  <a href="../a-simple-pub-sub-written-in-ts.html">newer: pub/sub</a>
+</footer>
+
+</div>
+<script>
+
+(function(){
+'use strict';
+document.documentElement.classList.add('js');
+var rm=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* scroll reveal: hidden states exist only when JS runs */
+var kids=[].slice.call(document.querySelectorAll('article > *'));
+if(!rm && 'IntersectionObserver' in window){
+  kids.forEach(function(el){el.classList.add('reveal');});
+  var ro=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){en.target.classList.add('in');ro.unobserve(en.target);}
+    });
+  },{rootMargin:'0px 0px -8% 0px'});
+  kids.forEach(function(el){ro.observe(el);});
+}
+
+/* toc links */
+var tocLinks={};
+[].slice.call(document.querySelectorAll('#toc-list a')).forEach(function(a){
+  tocLinks[a.getAttribute('href').slice(1)]=a;
+});
+
+/* scroll spy */
+var heads=[].slice.call(document.querySelectorAll('article h2[id], article h3[id]'));
+if('IntersectionObserver' in window && heads.length && Object.keys(tocLinks).length){
+  var vis={};
+  var spy=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){vis[en.target.id]=en.boundingClientRect.top;}
+      else{delete vis[en.target.id];}
+    });
+    var best=null,btop=Infinity;
+    Object.keys(vis).forEach(function(id){
+      if(vis[id]<btop){btop=vis[id];best=id;}
+    });
+    if(best!==null){
+      Object.keys(tocLinks).forEach(function(id){
+        tocLinks[id].classList.toggle('active',id===best);
+      });
+    }
+  },{rootMargin:'-10% 0px -70% 0px'});
+  heads.forEach(function(h){spy.observe(h);});
+}
+
+/* mobile toc relocation */
+var list=document.getElementById('toc-list');
+var det=document.querySelector('.toc-mobile');
+var mq=window.matchMedia('(max-width:900px)');
+function place(){
+  if(!list||!det)return;
+  if(mq.matches){det.appendChild(list);}
+}
+if(mq.addEventListener){mq.addEventListener('change',place);}
+else if(mq.addListener){mq.addListener(place);}
+place();
+})();
+
+(function(){
+'use strict';
+
+var fig=document.getElementById('fig-autograd');
+if(fig){
+  var boxes=[].slice.call(fig.querySelectorAll('#ag-boxes rect'));
+  var fwd=[].slice.call(fig.querySelectorAll('#ag-fwd line')).map(function(l){return l;});
+  var back=document.getElementById('ag-back');
+  var head=document.getElementById('ag-back-head');
+  var g1=document.getElementById('ag-g1');
+  var g2=document.getElementById('ag-g2');
+  var badge=document.getElementById('ag-badge');
+  var zEl=document.getElementById('pt-z'),dyEl=document.getElementById('pt-dzdy'),xgEl=document.getElementById('pt-xg');
+
+  function setOp(n,v){n.setAttribute('opacity',v);}
+  function clamp(v){return Math.max(0,Math.min(1,v));}
+  function win(e,a,b){return clamp((e-a)/(b-a));}
+
+  function draw(e){
+    var i;
+    for(i=0;i<boxes.length;i++){
+      boxes[i].setAttribute('stroke',win(e,i*0.06,(i*0.06)+0.02)>0?'#0e7355':'#4a4438');
+    }
+    for(i=0;i<fwd.length;i++){
+      fwd[i].setAttribute('opacity',win(e,0.08+i*0.08,0.20+i*0.08));
+    }
+    var bp=win(e,0.55,0.85);
+    back.setAttribute('stroke-dashoffset',String(1-bp));
+    if(bp>0){
+      var hx=636-606*bp;
+      head.setAttribute('points',(hx+12)+','+(156)+' '+hx+',160 '+(hx+12)+','+(164));
+      head.setAttribute('opacity',bp>=1?1:0);
+    }else{head.setAttribute('opacity',0);}
+    setOp(g1,e>0.72?1:0);
+    setOp(g2,e>0.80?1:0);
+    setOp(badge,win(e,0.92,1)>0.99?1:0);
+    zEl.textContent=e>0.55?'21.000':'-';
+    dyEl.textContent=e>0.75?'0.250':'-';
+    xgEl.textContent=e>=0.999?'2.250':'-';
+  }
+  function reset(){
+    zEl.textContent='-';dyEl.textContent='-';xgEl.textContent='-';
+    draw(0);setOp(g1,0);setOp(g2,0);setOp(badge,0);
+  }
+  var btn=fig.querySelector('.fig-replay');
+  var raf=null,t0=0,DUR=3200;
+  function ease(x){return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
+  function frame(ts){
+    if(!t0)t0=ts;
+    var p=Math.min((ts-t0)/DUR,1);
+    draw(ease(p));
+    if(p>=1){raf=null;}else{raf=requestAnimationFrame(frame);}
+  }
+  function stop(){if(raf){cancelAnimationFrame(raf);raf=null;}}
+  function play(){stop();reset();if(rm){draw(1);setOp(g1,1);setOp(g2,1);setOp(badge,1);return;}t0=0;raf=requestAnimationFrame(frame);}
+  btn.addEventListener('click',play);
+  if(rm){draw(1);setOp(g1,1);setOp(g2,1);setOp(badge,1);}
+  else if('IntersectionObserver' in window){
+    var played=false;
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(en){if(en.isIntersecting&&!played){played=true;play();io.disconnect();}});
+    },{threshold:0.4});
+    io.observe(fig);
+  }else{draw(1);setOp(g1,1);setOp(g2,1);setOp(badge,1);}
+}
+})();
+</script>
+</body>
+</html>
