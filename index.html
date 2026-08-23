@@ -302,6 +302,11 @@ button:focus-visible,a:focus-visible,summary:focus-visible{
 <h2 id="dl"><span class="secnum">01</span>Deep learning<span class="path">docs/dl/</span></h2>
 <ul class="index">
 <li>
+<a class="post-title" href="docs/dl/the_32bit_trap.html">The 32-Bit Trap: how a 4 GB tensor becomes a wild pointer</a>
+<p class="post-meta"><span>aug 2026</span><span>megakernels</span><span>cute dsl</span><span>featured</span><span>22 min</span></p>
+<p class="post-desc">A single-launch Qwen2.5 megakernel, bit-exact at 0.5B, died at 14B on first launch: CuTe DSL computed tensor byte offsets in 32-bit, and anything past 4.29 GB wrapped to a wild pointer. The full debugging story, the bisection that proved the boundary, and the fix that costs nothing at runtime.</p>
+</li>
+<li>
 <a class="post-title" href="docs/dl/vectorization-coalescing.html">Vectorization and coalescing: the two ways to move memory fast</a>
 <p class="post-meta"><span>jul 2026</span><span>gpu kernels</span><span>cutlass cute</span><span>4 min</span></p>
 <p class="post-desc">Two independent knobs decide kernel bandwidth: how wide each thread's load is, and whether adjacent lanes touch adjacent addresses. CuTe gives you exactly one call for each.</p>
