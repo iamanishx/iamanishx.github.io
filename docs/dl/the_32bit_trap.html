@@ -408,15 +408,14 @@
       tokens, bit-matched against HuggingFace. At 14B it compiled fine and died on the
       first launch with <code>CUDA_ERROR_ILLEGAL_ADDRESS</code>. The kernel was correct.
       The <em>address arithmetic</em> was not: CuTe DSL computed tensor byte offsets in
-      32-bit, and anything past 2<sup>32</sup> bytes wrapped to a wild address. This is
-      the full story: how weights travel from HuggingFace into a CuTe kernel, where the
-      pointer breaks, and the fix that costs nothing at runtime.
+      32-bit, and anything past 2<sup>32</sup> bytes wrapped to a wild address. Here is 
+      the tale of how we fixed it :
     </p>
     <div class="byline">
       <span>cute-lrn / megakernels</span>
       <span>~22 min read</span>
       <span>Cost of this bug: 2 days + ~$6 of A100 time</span>
-      <span>Sources: <code>.agents/the_32bit_trap.md</code>, CUTLASS #2312 / #3208 / #2886, FlashInfer #3392 / #3230</span>
+      <span><a href="../../index.html">archives home</a></span>
     </div>
   </header>
 
